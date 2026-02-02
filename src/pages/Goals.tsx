@@ -24,6 +24,7 @@ import { Progress } from "@/components/ui/progress";
 import { aiService } from "@/lib/ai/ai-service";
 import type { TrainingTransaction } from "@/lib/ai/training-data";
 import { Badge } from "@/components/ui/badge";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 interface Goal {
   id: string;
@@ -36,48 +37,29 @@ interface Goal {
   linkedPods: string[];
 }
 
-const initialGoals: Goal[] = [
-  {
-    id: "1",
-    name: "Emergency Fund",
-    targetAmount: 300000,
-    currentAmount: 245000,
-    deadline: "2026-02-15",
-    status: "on-track",
-    monthlyContribution: 25000,
-    linkedPods: ["Savings"],
-  },
-  {
-    id: "2",
-    name: "New Car Down Payment",
-    targetAmount: 500000,
-    currentAmount: 180000,
-    deadline: "2026-08-01",
-    status: "mild-pressure",
-    monthlyContribution: 40000,
-    linkedPods: ["Transport", "Savings"],
-  },
-  {
-    id: "3",
-    name: "Japan Trip 2026",
-    targetAmount: 250000,
-    currentAmount: 85000,
-    deadline: "2026-04-01",
-    status: "critical",
-    monthlyContribution: 55000,
-    linkedPods: ["Travel"],
-  },
-  {
-    id: "4",
-    name: "MacBook Pro M4",
-    targetAmount: 180000,
-    currentAmount: 120000,
-    deadline: "2026-06-01",
-    status: "on-track",
-    monthlyContribution: 15000,
-    linkedPods: ["Tech"],
-  },
-];
+interface GoalRow {
+  id: string;
+  name: string;
+  target_amount: number;
+  current_amount: number;
+  deadline: string;
+  status: "on-track" | "mild-pressure" | "critical";
+  monthly_contribution: number;
+  linked_pods: string[] | null;
+}
+
+function mapGoalRow(row: GoalRow): Goal {
+  return {
+    id: row.id,
+    name: row.name,
+    targetAmount: row.target_amount,
+    currentAmount: row.current_amount,
+    deadline: row.deadline,
+    status: row.status,
+    monthlyContribution: row.monthly_contribution,
+    linkedPods: row.linked_pods ?? [],
+  };
+}
 
 const statusConfig = {
   "on-track": {
@@ -123,22 +105,6 @@ function daysUntil(deadline: string): number {
   return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-// Mock transaction data for analysis (in a real app, this would come from a shared state/context)
-const mockTransactionsForAnalysis = [
-  { category: "Dining", amount: 1850, date: "2026-01-09" },
-  { category: "Coffee", amount: 450, date: "2026-01-11" },
-  { category: "Shopping", amount: 2499, date: "2026-01-10" },
-  { category: "Transport", amount: 320, date: "2026-01-10" },
-  { category: "Tech", amount: 649, date: "2026-01-09" },
-  { category: "Health", amount: 2500, date: "2026-01-08" },
-  { category: "Dining", amount: 1200, date: "2026-01-08" },
-  { category: "Coffee", amount: 380, date: "2026-01-07" },
-  { category: "Shopping", amount: 1500, date: "2026-01-06" },
-  { category: "Transport", amount: 450, date: "2026-01-05" },
-  { category: "Dining", amount: 2200, date: "2026-01-04" },
-  { category: "Coffee", amount: 520, date: "2026-01-03" },
-];
-
 interface SpendingCategory {
   category: string;
   monthlySpending: number;
@@ -149,14 +115,14 @@ interface SpendingCategory {
   monthsSaved: number;
 }
 
-function analyzeSpendingPatterns(goal: Goal): SpendingCategory[] {
+function analyzeSpendingPatterns(goal: Goal, transactions: TrainingTransaction[]): SpendingCategory[] {
   // Calculate monthly spending by category from last 30 days
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   
-  const recentTransactions = mockTransactionsForAnalysis.filter((tx) => {
+  const recentTransactions = transactions.filter((tx) => {
     const txDate = new Date(tx.date);
-    return txDate >= thirtyDaysAgo;
+    return txDate >= thirtyDaysAgo && tx.type === "expense";
   });
 
   // Group by category and calculate monthly totals
@@ -222,9 +188,17 @@ function analyzeSpendingPatterns(goal: Goal): SpendingCategory[] {
   return categories.sort((a, b) => b.daysSaved - a.daysSaved);
 }
 
-function WhatIfDialog({ goal }: { goal: Goal }) {
+function WhatIfDialog({
+  goal,
+  transactions,
+  onApply,
+}: {
+  goal: Goal;
+  transactions: TrainingTransaction[];
+  onApply: (goalId: string, newMonthlyContribution: number, addedSavings: number) => void;
+}) {
   const [open, setOpen] = useState(false);
-  const spendingAnalysis = analyzeSpendingPatterns(goal);
+  const spendingAnalysis = analyzeSpendingPatterns(goal, transactions);
   const topRecommendations = spendingAnalysis.slice(0, 3);
 
   const remaining = goal.targetAmount - goal.currentAmount;
@@ -444,10 +418,15 @@ function WhatIfDialog({ goal }: { goal: Goal }) {
             <Button
               className="bg-gradient-primary hover:opacity-90"
               onClick={() => {
-                toast({
-                  title: "Recommendations saved",
-                  description: "Consider implementing these spending reductions to accelerate your goal!",
-                });
+                if (totalPotentialSavings <= 0) {
+                  toast({
+                    title: "No savings available",
+                    description: "Add more spending data to generate actionable recommendations.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                onApply(goal.id, bestCaseMonthlyContribution, totalPotentialSavings);
                 setOpen(false);
               }}
             >
@@ -460,7 +439,19 @@ function WhatIfDialog({ goal }: { goal: Goal }) {
   );
 }
 
-function GoalOrbit({ goal, index, aiPrediction }: { goal: Goal; index: number; aiPrediction?: { probability: number; monthsToComplete: number; successLikelihood: string } }) {
+function GoalOrbit({
+  goal,
+  index,
+  aiPrediction,
+  transactions,
+  onApply,
+}: {
+  goal: Goal;
+  index: number;
+  aiPrediction?: { probability: number; monthsToComplete: number; successLikelihood: string };
+  transactions: TrainingTransaction[];
+  onApply: (goalId: string, newMonthlyContribution: number, addedSavings: number) => void;
+}) {
   const config = statusConfig[goal.status];
   const percentage = (goal.currentAmount / goal.targetAmount) * 100;
   const days = daysUntil(goal.deadline);
@@ -570,7 +561,11 @@ function GoalOrbit({ goal, index, aiPrediction }: { goal: Goal; index: number; a
 
       {/* Actions */}
       <div className="flex items-center gap-2 mt-5 pt-4 border-t border-border">
-        <WhatIfDialog goal={goal} />
+        <WhatIfDialog
+          goal={goal}
+          transactions={transactions}
+          onApply={onApply}
+        />
         <Button
           variant="ghost"
           size="sm"
@@ -714,22 +709,98 @@ function NewGoalDialog({ onAdd }: { onAdd: (goal: Goal) => void }) {
 }
 
 export default function Goals() {
-  const [goals, setGoals] = useState<Goal[]>(initialGoals);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [aiPredictions, setAiPredictions] = useState<Record<string, { probability: number; monthsToComplete: number; successLikelihood: string }>>({});
+  const [trainingTransactions, setTrainingTransactions] = useState<TrainingTransaction[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadData = async () => {
+      if (!isSupabaseConfigured) {
+        setIsLoading(false);
+        return;
+      }
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (userError || !userData.user) {
+        setIsLoading(false);
+        return;
+      }
+      setUserId(userData.user.id);
+      const { data: goalData, error: goalError } = await supabase
+        .from("goals")
+        .select("id,name,target_amount,current_amount,deadline,status,monthly_contribution,linked_pods,created_at")
+        .eq("user_id", userData.user.id)
+        .order("created_at", { ascending: true });
+      if (!isActive) return;
+      if (goalError) {
+        toast({
+          title: "Failed to load goals",
+          description: goalError.message,
+          variant: "destructive",
+        });
+      } else {
+        const mapped = (goalData ?? []).map((goal) => mapGoalRow(goal as GoalRow));
+        setGoals(mapped);
+      }
+
+      const { data: transactionData, error: txError } = await supabase
+        .from("transactions")
+        .select("description,amount,category,type,date")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      if (txError) {
+        console.error("Failed to load transactions for goals", txError);
+        setTrainingTransactions([]);
+        aiService.initialize([], 0);
+      } else {
+        const parsed = (transactionData ?? []) as TrainingTransaction[];
+        setTrainingTransactions(parsed);
+        const incomeTotal = parsed
+          .filter((tx) => tx.type === "income")
+          .reduce((sum, tx) => sum + tx.amount, 0);
+        aiService.initialize(parsed, incomeTotal);
+      }
+      setIsLoading(false);
+    };
+    loadData();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const channel = supabase
+      .channel("goals-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "goals", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const created = mapGoalRow(payload.new as GoalRow);
+            setGoals((prev) => (prev.some((goal) => goal.id === created.id) ? prev : [...prev, created]));
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = mapGoalRow(payload.new as GoalRow);
+            setGoals((prev) => prev.map((goal) => (goal.id === updated.id ? updated : goal)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setGoals((prev) => prev.filter((goal) => goal.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   // Initialize AI service and generate predictions
   useEffect(() => {
-    // Convert mock transactions to training data
-    const trainingData: TrainingTransaction[] = mockTransactionsForAnalysis.map((tx) => ({
-      description: `${tx.category} transaction`,
-      amount: tx.amount,
-      category: tx.category,
-      type: "expense" as const,
-      date: tx.date,
-    }));
-    
-    aiService.initialize(trainingData, 280000);
-    
     // Generate predictions for each goal
     const predictions: Record<string, { probability: number; monthsToComplete: number; successLikelihood: string }> = {};
     goals.forEach((goal) => {
@@ -751,10 +822,78 @@ export default function Goals() {
       };
     });
     setAiPredictions(predictions);
-  }, [goals]);
+  }, [goals, trainingTransactions]);
 
-  const handleAddGoal = (goal: Goal) => {
-    setGoals((prev) => [...prev, goal]);
+  const handleAddGoal = async (goal: Goal) => {
+    if (!userId) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to add goals.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const { data, error } = await supabase
+      .from("goals")
+      .insert({
+        user_id: userId,
+        name: goal.name,
+        target_amount: goal.targetAmount,
+        current_amount: goal.currentAmount,
+        deadline: goal.deadline,
+        status: goal.status,
+        monthly_contribution: goal.monthlyContribution,
+        linked_pods: goal.linkedPods,
+      })
+      .select("id,name,target_amount,current_amount,deadline,status,monthly_contribution,linked_pods")
+      .single();
+    if (error || !data) {
+      toast({
+        title: "Failed to add goal",
+        description: error?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const saved = mapGoalRow(data as GoalRow);
+    setGoals((prev) => [...prev, saved]);
+  };
+
+  const handleApplyRecommendations = async (
+    goalId: string,
+    newMonthlyContribution: number,
+    addedSavings: number
+  ) => {
+    if (!userId) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to apply recommendations.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const { error } = await supabase
+      .from("goals")
+      .update({ monthly_contribution: newMonthlyContribution })
+      .eq("id", goalId)
+      .eq("user_id", userId);
+    if (error) {
+      toast({
+        title: "Apply failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    setGoals((prev) =>
+      prev.map((goal) =>
+        goal.id === goalId ? { ...goal, monthlyContribution: newMonthlyContribution } : goal
+      )
+    );
+    toast({
+      title: "Recommendations applied",
+      description: `Monthly contribution increased by ${formatCurrency(addedSavings)}.`,
+    });
   };
 
   const totalTarget = goals.reduce((sum, g) => sum + g.targetAmount, 0);
@@ -776,6 +915,12 @@ export default function Goals() {
           </div>
           <NewGoalDialog onAdd={handleAddGoal} />
         </motion.header>
+
+        {isLoading && (
+          <div className="glass-card rounded-xl p-4 text-sm text-muted-foreground">
+            Loading your goals...
+          </div>
+        )}
 
         {/* Summary */}
         <motion.div
@@ -802,12 +947,19 @@ export default function Goals() {
 
         {/* Goals Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {goals.length === 0 && (
+            <div className="glass-card rounded-xl p-6 text-sm text-muted-foreground">
+              No goals yet. Create your first goal to start tracking real progress.
+            </div>
+          )}
           {goals.map((goal, index) => (
             <GoalOrbit 
               key={goal.id} 
               goal={goal} 
               index={index} 
               aiPrediction={aiPredictions[goal.id]}
+              transactions={trainingTransactions}
+              onApply={handleApplyRecommendations}
             />
           ))}
         </div>

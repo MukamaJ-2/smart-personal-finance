@@ -2,6 +2,8 @@ import { motion } from "framer-motion";
 import { Zap, TrendingDown, AlertTriangle, CheckCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useEffect, useMemo, useState } from "react";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 interface FluxPod {
   id: string;
@@ -10,13 +12,6 @@ interface FluxPod {
   spent: number;
   status: "healthy" | "warning" | "critical";
 }
-
-const pods: FluxPod[] = [
-  { id: "1", name: "Essentials", allocated: 80000, spent: 45000, status: "healthy" },
-  { id: "2", name: "Entertainment", allocated: 15000, spent: 12500, status: "warning" },
-  { id: "3", name: "Dining Out", allocated: 10000, spent: 9800, status: "critical" },
-  { id: "4", name: "Transport", allocated: 8000, spent: 3200, status: "healthy" },
-];
 
 const statusConfig = {
   healthy: {
@@ -51,6 +46,61 @@ function formatCurrency(amount: number): string {
 }
 
 export default function FluxPodPreview() {
+  const [pods, setPods] = useState<FluxPod[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadPods = async () => {
+      if (!isSupabaseConfigured) return;
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (userError || !userData.user) return;
+      setUserId(userData.user.id);
+      const { data } = await supabase
+        .from("flux_pods")
+        .select("id,name,allocated,spent,status")
+        .eq("user_id", userData.user.id)
+        .order("created_at", { ascending: true });
+      if (!isActive) return;
+      setPods((data ?? []) as FluxPod[]);
+    };
+    loadPods();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const channel = supabase
+      .channel("flux-pod-preview")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "flux_pods", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const created = payload.new as FluxPod;
+            setPods((prev) => (prev.some((pod) => pod.id === created.id) ? prev : [...prev, created]));
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as FluxPod;
+            setPods((prev) => prev.map((pod) => (pod.id === updated.id ? updated : pod)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setPods((prev) => prev.filter((pod) => pod.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  const previewPods = useMemo(() => pods.slice(0, 4), [pods]);
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -74,7 +124,12 @@ export default function FluxPodPreview() {
       </div>
 
       <div className="space-y-3">
-        {pods.map((pod) => {
+        {previewPods.length === 0 && (
+          <div className="text-xs text-muted-foreground">
+            No pods yet. Create a pod to see it here.
+          </div>
+        )}
+        {previewPods.map((pod) => {
           const config = statusConfig[pod.status];
           const percentage = (pod.spent / pod.allocated) * 100;
           const remaining = pod.allocated - pod.spent;

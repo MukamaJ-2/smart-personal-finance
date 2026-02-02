@@ -16,7 +16,7 @@
 
 ## Overview
 
-FinNexus AI uses **5 trained AI models** that work together to provide intelligent financial insights. All models are currently **simulated** (using rule-based algorithms that mimic real ML models) but are designed to be easily replaced with actual trained models.
+UniGuard Wallet uses **5 trained AI models** that work together to provide intelligent financial insights. All models are currently **simulated** (using rule-based algorithms that mimic real ML models) but are designed to be easily replaced with actual trained models.
 
 ---
 
@@ -969,5 +969,5 @@ const prediction = aiService.predictGoal(goal, activeGoals);
 
 ---
 
-**This guide explains the complete architecture and flow of all AI models in FinNexus AI!** 🚀
+**This guide explains the complete architecture and flow of all AI models in UniGuard Wallet!** 🚀
 

@@ -1,4 +1,4 @@
-# Welcome to your Lovable project
+# UniGuard Wallet
 
 ## Project info
 

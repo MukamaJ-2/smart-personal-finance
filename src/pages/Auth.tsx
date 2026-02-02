@@ -20,6 +20,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { setUserEmail } from "@/lib/notifications";
+import { supabase } from "@/lib/supabase";
+import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -49,7 +52,7 @@ export default function Auth() {
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState("");
   const [agreeToTerms, setAgreeToTerms] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail || !loginPassword) {
       toast({
@@ -59,12 +62,51 @@ export default function Auth() {
       });
       return;
     }
+    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      toast({
+        title: "Supabase not configured",
+        description: "Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!isValidEmail(loginEmail)) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid, working email address.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    // Simulate login
+    const normalizedEmail = normalizeEmail(loginEmail);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: loginPassword,
+    });
+    if (error || !data.user) {
+      toast({
+        title: "Login failed",
+        description: error?.message ?? "Email or password is incorrect.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    let displayName = "Welcome back!";
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("name")
+      .eq("id", data.user.id)
+      .maybeSingle();
+    if (profileData?.name) {
+      displayName = `Welcome back, ${profileData.name}.`;
+    }
     toast({
       title: "Welcome back!",
-      description: "Successfully logged in to FinNexus AI.",
+      description: displayName,
     });
+    setUserEmail(data.user.email ?? normalizedEmail);
     
     // Navigate to dashboard
     setTimeout(() => {
@@ -72,7 +114,7 @@ export default function Auth() {
     }, 500);
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!registerName || !registerEmail || !registerPassword || !registerConfirmPassword) {
       toast({
@@ -87,6 +129,24 @@ export default function Auth() {
       toast({
         title: "Password mismatch",
         description: "Passwords do not match.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!isValidEmail(registerEmail)) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid, working email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      toast({
+        title: "Supabase not configured",
+        description: "Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.",
         variant: "destructive",
       });
       return;
@@ -110,16 +170,49 @@ export default function Auth() {
       return;
     }
 
-    // Simulate registration
-    toast({
-      title: "Account created!",
-      description: "Welcome to FinNexus AI. Your account has been created successfully.",
+    const normalizedEmail = normalizeEmail(registerEmail);
+    const { data, error } = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password: registerPassword,
     });
-    
-    // Navigate to dashboard
-    setTimeout(() => {
-      navigate("/");
-    }, 500);
+    if (error) {
+      toast({
+        title: "Registration failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const userId = data.user?.id;
+    if (userId) {
+      await supabase.from("profiles").upsert(
+        {
+          id: userId,
+          name: registerName.trim(),
+          email: normalizedEmail,
+          phone: "",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      );
+    }
+
+    setUserEmail(normalizedEmail);
+    if (data.session) {
+      toast({
+        title: "Account created!",
+        description: "Welcome to UniGuard Wallet. Your account has been created successfully.",
+      });
+      setTimeout(() => {
+        navigate("/");
+      }, 500);
+    } else {
+      toast({
+        title: "Confirm your email",
+        description: "Check your inbox to verify your email before signing in.",
+      });
+    }
   };
 
   return (
@@ -151,10 +244,10 @@ export default function Auth() {
             <Zap className="w-10 h-10 text-primary-foreground" />
           </div>
           <h1 className="font-display text-3xl font-bold text-foreground mb-2">
-            FinNexus AI
+            UniGuard Wallet
           </h1>
           <p className="text-muted-foreground text-sm">
-            Your intelligent financial command center
+            Your secure financial command center
           </p>
         </motion.div>
 
@@ -428,7 +521,7 @@ export default function Auth() {
           className="text-center mt-6 text-sm text-muted-foreground"
         >
           <p>
-            By continuing, you agree to FinNexus AI's{" "}
+            By continuing, you agree to UniGuard Wallet's{" "}
             <Link to="/terms" className="text-primary hover:text-primary-glow">
               Terms
             </Link>{" "}

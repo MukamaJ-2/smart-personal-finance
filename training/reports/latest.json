@@ -1,0 +1,124 @@
+{
+  "dataset_sources": {
+    "budget_allocator": [
+      "shrinolo/budget-allocation",
+      "shriyashjagtap/indian-personal-finance-and-spending-habits"
+    ],
+    "goal_predictor": [
+      "shriyashjagtap/indian-personal-finance-and-spending-habits"
+    ],
+    "spending": [
+      "ismetsemedov/personal-budget-transactions-dataset",
+      "mohammedarfathr/budgetwise-personal-finance-dataset",
+      "cihannl/budgetwise-personal-finance-dataset"
+    ],
+    "transactions": [
+      "entrepreneurlife/personal-finance",
+      "bukolafatunde/personal-finance",
+      "willianoliveiragibin/financial-wellness"
+    ]
+  },
+  "datasets": {
+    "spending_rows": 6814,
+    "transactions_rows": 2379
+  },
+  "filters": {
+    "allowed_categories": [
+      "Clothing",
+      "Coffee",
+      "Communication",
+      "Debt Payments",
+      "Dining",
+      "Eating Out",
+      "Education",
+      "Entertainment",
+      "Food",
+      "Gifts / Donations",
+      "Health",
+      "Housing",
+      "Income",
+      "Insurance",
+      "Miscellaneous",
+      "Personal Care",
+      "Rent",
+      "Savings",
+      "Shopping",
+      "Tech",
+      "Transport",
+      "Travel",
+      "Utilities"
+    ],
+    "english_like_ratio": 0.9,
+    "max_amount": 5000000000.0,
+    "max_category_count": 500,
+    "min_amount": 1.0,
+    "min_category_count": 50,
+    "min_description_tokens": 1,
+    "min_spending_category_count": 80,
+    "min_spending_months": 6
+  },
+  "metrics": {
+    "anomaly_detector": {
+      "alert_rate": 0.0567,
+      "precision": 0.5556,
+      "recall": 1.0,
+      "samples": 476
+    },
+    "budget_allocator": {
+      "rmse": 0.0371,
+      "samples": 4400
+    },
+    "goal_predictor": {
+      "brier": 0.0004,
+      "mae": 0.0167,
+      "samples": 4000
+    },
+    "spending_forecaster": {
+      "directional_accuracy": 0.525,
+      "mae": 431.295,
+      "mape": 12.7362,
+      "samples": 47
+    },
+    "transaction_categorizer": {
+      "confusion_matrix": {
+        "Communication": {
+          "Communication": 15,
+          "Eating Out": 12
+        },
+        "Debt Payments": {
+          "Debt Payments": 103
+        },
+        "Eating Out": {
+          "Eating Out": 111
+        },
+        "Food": {
+          "Food": 45
+        },
+        "Income": {
+          "Income": 28
+        },
+        "Other": {
+          "Eating Out": 24,
+          "Other": 24
+        },
+        "Shopping": {
+          "Eating Out": 3,
+          "Shopping": 45
+        },
+        "Transport": {
+          "Eating Out": 21,
+          "Transport": 9
+        },
+        "Utilities": {
+          "Eating Out": 24,
+          "Utilities": 12
+        }
+      },
+      "macro_f1": 0.7608,
+      "samples": 476,
+      "top3_accuracy": 0.8992,
+      "weighted_f1": 0.7944
+    }
+  },
+  "timestamp": "2026-02-02T19:21:54.343062+00:00"
+}

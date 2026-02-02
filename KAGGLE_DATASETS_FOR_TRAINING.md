@@ -1,6 +1,6 @@
 # Kaggle Datasets for Training AI Models
 
-This document provides recommended Kaggle datasets for training each of the 5 AI models in FinNexus AI.
+This document provides recommended Kaggle datasets for training each of the 5 AI models in UniGuard Wallet.
 
 ---
 

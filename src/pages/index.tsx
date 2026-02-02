@@ -1,12 +1,18 @@
 import { motion } from "framer-motion";
-import { TrendingUp, TrendingDown, Activity, Zap, Target, Wallet } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Zap, Target, Wallet, Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
 import FinancialNexus from "@/components/nexus/FinancialNexus";
 import AppLayout from "@/components/layout/AppLayout";
 import QuickStats from "@/components/dashboard/QuickStats";
 import FluxPodPreview from "@/components/dashboard/FluxPodPreview";
 import RecentTransactions from "@/components/dashboard/RecentTransactions";
+import NotificationsPanel from "@/components/dashboard/NotificationsPanel";
+import { Button } from "@/components/ui/button";
 
 export default function Index() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+
   return (
     <AppLayout>
       <div className="min-h-screen p-6 space-y-6">
@@ -24,9 +30,21 @@ export default function Index() {
               Your financial command center
             </p>
           </div>
-          <div className="flex items-center gap-2 glass-card px-4 py-2 rounded-xl">
-            <Activity className="w-4 h-4 text-success animate-pulse" />
-            <span className="text-sm font-mono text-foreground">System Online</span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="border-border hover:border-primary/50"
+              onClick={() => setTheme(isDark ? "light" : "dark")}
+              aria-label="Toggle theme"
+              title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
+            <div className="flex items-center gap-2 glass-card px-4 py-2 rounded-xl">
+              <Activity className="w-4 h-4 text-success animate-pulse" />
+              <span className="text-sm font-mono text-foreground">System Online</span>
+            </div>
           </div>
         </motion.header>
 
@@ -60,6 +78,9 @@ export default function Index() {
 
             {/* Recent Activity */}
             <RecentTransactions />
+
+            {/* Notifications */}
+            <NotificationsPanel />
           </div>
         </div>
       </div>

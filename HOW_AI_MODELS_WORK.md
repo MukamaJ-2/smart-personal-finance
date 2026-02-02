@@ -1,6 +1,6 @@
 # How Each AI Model Works - Simple Explanation
 
-This document explains how every AI model in FinNexus AI works, in plain English that anyone can understand.
+This document explains how every AI model in UniGuard Wallet works, in plain English that anyone can understand.
 
 ---
 

@@ -309,5 +309,5 @@ High Impact
 
 ---
 
-This map shows exactly where each AI feature would integrate into your existing FinNexus AI application!
+This map shows exactly where each AI feature would integrate into your existing UniGuard Wallet application!
 

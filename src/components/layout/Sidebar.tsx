@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -16,9 +16,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 const navItems = [
-  { icon: LayoutDashboard, label: "Nexus Hub", path: "/" },
+  { icon: LayoutDashboard, label: "Wallet Hub", path: "/" },
   { icon: Wallet, label: "Transactions", path: "/transactions" },
   { icon: Zap, label: "Flux Pods", path: "/flux-pods" },
   { icon: Target, label: "Goals", path: "/goals" },
@@ -30,10 +31,72 @@ const navItems = [
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [transactions, setTransactions] = useState<Array<{ id: string; amount: number; type: "income" | "expense" }>>(
+    []
+  );
+  const [userId, setUserId] = useState<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
+  useEffect(() => {
+    let isActive = true;
+    const loadTransactions = async () => {
+      if (!isSupabaseConfigured) return;
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (userError || !userData.user) return;
+      setUserId(userData.user.id);
+      const { data } = await supabase
+        .from("transactions")
+        .select("id,amount,type")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      setTransactions((data ?? []) as Array<{ id: string; amount: number; type: "income" | "expense" }>);
+    };
+    loadTransactions();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const channel = supabase
+      .channel("sidebar-transactions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const created = payload.new as { id: string; amount: number; type: "income" | "expense" };
+            setTransactions((prev) => (prev.some((tx) => tx.id === created.id) ? prev : [...prev, created]));
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as { id: string; amount: number; type: "income" | "expense" };
+            setTransactions((prev) => prev.map((tx) => (tx.id === updated.id ? updated : tx)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setTransactions((prev) => prev.filter((tx) => tx.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  const healthScore = useMemo(() => {
+    const income = transactions.filter((tx) => tx.type === "income").reduce((sum, tx) => sum + tx.amount, 0);
+    const expense = transactions.filter((tx) => tx.type === "expense").reduce((sum, tx) => sum + tx.amount, 0);
+    if (income <= 0) return 0;
+    const rate = Math.max(0, Math.min(1, (income - expense) / income));
+    return Math.round(rate * 100);
+  }, [transactions]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     toast({
       title: "Logged out",
       description: "You have been successfully logged out.",
@@ -66,8 +129,8 @@ export default function Sidebar() {
               exit={{ opacity: 0 }}
               className="flex flex-col"
             >
-              <span className="font-display text-lg font-bold text-foreground">FinNexus</span>
-              <span className="text-[10px] text-primary font-mono uppercase tracking-wider">AI Finance</span>
+              <span className="font-display text-lg font-bold text-foreground">UniGuard Wallet</span>
+              <span className="text-[10px] text-primary font-mono uppercase tracking-wider">Secure Finance</span>
             </motion.div>
           )}
         </motion.div>
@@ -126,17 +189,19 @@ export default function Sidebar() {
         >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-muted-foreground uppercase tracking-wider">Health Score</span>
-            <span className="font-mono text-lg font-bold text-success text-glow-sm">87</span>
+            <span className="font-mono text-lg font-bold text-success text-glow-sm">{healthScore}</span>
           </div>
           <div className="h-1.5 bg-muted rounded-full overflow-hidden">
             <motion.div
               className="h-full bg-gradient-success rounded-full"
               initial={{ width: 0 }}
-              animate={{ width: "87%" }}
+              animate={{ width: `${healthScore}%` }}
               transition={{ duration: 1, delay: 0.5 }}
             />
           </div>
-          <p className="text-xs text-muted-foreground mt-2">Excellent financial health</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            {healthScore >= 75 ? "Excellent financial health" : healthScore >= 50 ? "Stable financial health" : "Needs attention"}
+          </p>
         </motion.div>
       )}
 

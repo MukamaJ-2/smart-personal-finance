@@ -22,17 +22,47 @@ import {
   Briefcase,
   Sparkles,
   AlertTriangle,
+  Zap,
+  BookOpen,
+  Phone,
+  Ticket,
+  Droplet,
+  PiggyBank,
+  Gift,
+  Shield,
+  CreditCard,
+  MoreHorizontal,
+  Calendar,
 } from "lucide-react";
 import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { aiService } from "@/lib/ai/ai-service";
 import { detectAnomaly } from "@/lib/ai/models/anomaly-detector";
 import type { TrainingTransaction } from "@/lib/ai/training-data";
 import { Badge } from "@/components/ui/badge";
+import { addNotification, getUserEmail, markEmailSent, wasEmailSent } from "@/lib/notifications";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 const categoryIcons: Record<string, typeof Coffee> = {
+  Rent: Home,
+  Utilities: Zap,
+  Food: ShoppingBag,
+  "Eating Out": Utensils,
+  Education: BookOpen,
+  Communication: Phone,
+  Clothing: ShoppingBag,
+  Entertainment: Ticket,
+  "Personal Care": Droplet,
+  Savings: PiggyBank,
+  "Gifts / Donations": Gift,
+  Insurance: Shield,
+  "Debt Payments": CreditCard,
+  Miscellaneous: MoreHorizontal,
   Dining: Utensils,
   Shopping: ShoppingBag,
   Transport: Car,
@@ -45,6 +75,20 @@ const categoryIcons: Record<string, typeof Coffee> = {
 };
 
 const categoryColors: Record<string, string> = {
+  Rent: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+  Utilities: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+  Food: "bg-green-500/10 text-green-400 border-green-500/30",
+  "Eating Out": "bg-orange-500/10 text-orange-400 border-orange-500/30",
+  Education: "bg-indigo-500/10 text-indigo-400 border-indigo-500/30",
+  Communication: "bg-sky-500/10 text-sky-400 border-sky-500/30",
+  Clothing: "bg-pink-500/10 text-pink-400 border-pink-500/30",
+  Entertainment: "bg-purple-500/10 text-purple-400 border-purple-500/30",
+  "Personal Care": "bg-rose-500/10 text-rose-400 border-rose-500/30",
+  Savings: "bg-success/10 text-success border-success/30",
+  "Gifts / Donations": "bg-amber-500/10 text-amber-400 border-amber-500/30",
+  Insurance: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
+  "Debt Payments": "bg-destructive/10 text-destructive border-destructive/30",
+  Miscellaneous: "bg-muted text-muted-foreground border-border",
   Dining: "bg-orange-500/10 text-orange-400 border-orange-500/30",
   Shopping: "bg-pink-500/10 text-pink-400 border-pink-500/30",
   Transport: "bg-blue-500/10 text-blue-400 border-blue-500/30",
@@ -64,18 +108,38 @@ interface Transaction {
   category: string;
   date: string;
   time: string;
+  receiptUrl?: string;
+  receiptName?: string;
+  receiptType?: string;
 }
 
-const initialTransactions: Transaction[] = [
-  { id: "1", description: "Salary Deposit", amount: 280000, type: "income", category: "Income", date: "2026-01-11", time: "09:00" },
-  { id: "2", description: "Starbucks Coffee", amount: 450, type: "expense", category: "Coffee", date: "2026-01-11", time: "10:30" },
-  { id: "3", description: "Amazon Purchase", amount: 2499, type: "expense", category: "Shopping", date: "2026-01-10", time: "14:20" },
-  { id: "4", description: "Uber Ride to Office", amount: 320, type: "expense", category: "Transport", date: "2026-01-10", time: "08:45" },
-  { id: "5", description: "Restaurant Dinner", amount: 1850, type: "expense", category: "Dining", date: "2026-01-09", time: "20:30" },
-  { id: "6", description: "Netflix Subscription", amount: 649, type: "expense", category: "Tech", date: "2026-01-09", time: "00:00" },
-  { id: "7", description: "Gym Membership", amount: 2500, type: "expense", category: "Health", date: "2026-01-08", time: "00:00" },
-  { id: "8", description: "Freelance Payment", amount: 45000, type: "income", category: "Income", date: "2026-01-07", time: "16:00" },
-];
+interface TransactionRow {
+  id: string;
+  description: string;
+  amount: number;
+  type: "income" | "expense";
+  category: string;
+  date: string;
+  time: string;
+  receipt_url: string | null;
+  receipt_name: string | null;
+  receipt_type: string | null;
+}
+
+function mapTransactionRow(row: TransactionRow): Transaction {
+  return {
+    id: row.id,
+    description: row.description,
+    amount: row.amount,
+    type: row.type,
+    category: row.category,
+    date: row.date,
+    time: row.time,
+    receiptUrl: row.receipt_url ?? undefined,
+    receiptName: row.receipt_name ?? undefined,
+    receiptType: row.receipt_type ?? undefined,
+  };
+}
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-UG", {
@@ -105,12 +169,12 @@ function parseNaturalLanguage(input: string): ParsedTransaction | null {
   }
   
   // Determine type
-  const isIncome = /received|income|salary|payment|deposit|earned|got|paid/i.test(lower);
+  const isIncome = /received|income|salary|payment|deposit|earned|got|refund/i.test(lower);
   const isExpense = /spent|bought|purchase|paid|expense|cost/i.test(lower);
   const type: "income" | "expense" = isIncome ? "income" : (isExpense ? "expense" : "expense");
   
   // Use AI model for categorization
-  const aiResult = aiService.categorizeTransaction(input, amount);
+  const aiResult = aiService.categorizeTransaction(input, amount, undefined, type);
   const category = aiResult.category;
   
   // Extract description
@@ -124,7 +188,13 @@ function parseNaturalLanguage(input: string): ParsedTransaction | null {
 
 function QuickEntry({ onClose, onAdd }: { onClose: () => void; onAdd: (tx: Transaction) => void }) {
   const [input, setInput] = useState("");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const parsed = input ? parseNaturalLanguage(input) : null;
+
+  useEffect(() => {
+    return () => {};
+  }, [receiptUrl]);
   
   const handleAdd = () => {
     if (!parsed) return;
@@ -141,10 +211,15 @@ function QuickEntry({ onClose, onAdd }: { onClose: () => void; onAdd: (tx: Trans
       category: parsed.category,
       date,
       time,
+      receiptUrl: receiptUrl ?? undefined,
+      receiptName: receiptFile?.name,
+      receiptType: receiptFile?.type,
     };
     
     onAdd(newTransaction);
     setInput("");
+    setReceiptFile(null);
+    setReceiptUrl(null);
     onClose();
   };
 
@@ -193,6 +268,61 @@ function QuickEntry({ onClose, onAdd }: { onClose: () => void; onAdd: (tx: Trans
             </Button>
           </div>
 
+          {/* Receipt Upload */}
+          <div className="space-y-2">
+            <Label htmlFor="receipt-upload" className="text-xs text-muted-foreground uppercase tracking-wider">
+              Receipt (optional)
+            </Label>
+            <div className="flex items-center gap-3">
+              <Input
+                id="receipt-upload"
+                type="file"
+                accept="image/*,application/pdf"
+                className="bg-muted/30 border-border"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setReceiptFile(file);
+                      setReceiptUrl(typeof reader.result === "string" ? reader.result : null);
+                    };
+                    reader.onerror = () => {
+                      toast({
+                        title: "Receipt upload failed",
+                        description: "Please try a different file.",
+                        variant: "destructive",
+                      });
+                      setReceiptFile(null);
+                      setReceiptUrl(null);
+                    };
+                    reader.readAsDataURL(file);
+                  } else {
+                    setReceiptFile(null);
+                    setReceiptUrl(null);
+                  }
+                }}
+              />
+              {receiptUrl && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setReceiptFile(null);
+                    setReceiptUrl(null);
+                  }}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+            {receiptFile && (
+              <p className="text-xs text-muted-foreground">
+                Attached: {receiptFile.name}
+              </p>
+            )}
+          </div>
+
           {/* Parsed Preview */}
           {parsed && (
             <motion.div
@@ -211,6 +341,11 @@ function QuickEntry({ onClose, onAdd }: { onClose: () => void; onAdd: (tx: Trans
                     return <Icon className="w-5 h-5 text-primary" />;
                   })()}
                   <span className="text-foreground">{parsed.description}</span>
+                  {receiptFile && (
+                    <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+                      Receipt attached
+                    </Badge>
+                  )}
                 </div>
                 <span className={cn("font-mono", parsed.type === "income" ? "text-success" : "text-destructive")}>
                   {parsed.type === "income" ? "+" : "-"}
@@ -220,7 +355,7 @@ function QuickEntry({ onClose, onAdd }: { onClose: () => void; onAdd: (tx: Trans
               <div className="flex items-center justify-between mt-2">
                 <p className="text-xs text-muted-foreground">Today • Category: {parsed.category}</p>
                 {(() => {
-                  const aiResult = aiService.categorizeTransaction(parsed.description, parsed.amount);
+                  const aiResult = aiService.categorizeTransaction(parsed.description, parsed.amount, undefined, parsed.type);
                   return (
                     <Badge variant="outline" className="text-xs border-primary/30 text-primary">
                       {Math.round(aiResult.confidence * 100)}% confidence
@@ -255,15 +390,91 @@ function QuickEntry({ onClose, onAdd }: { onClose: () => void; onAdd: (tx: Trans
 }
 
 export default function Transactions() {
-  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{
+    description: string;
+    amount: string;
+    type: "income" | "expense";
+    category: string;
+  }>({ description: "", amount: "", type: "expense", category: "Other" });
   const [showFilters, setShowFilters] = useState(false);
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
   const [anomalies, setAnomalies] = useState<Record<string, { isAnomaly: boolean; severity: string; reason: string }>>({});
+  const [isSeeding, setIsSeeding] = useState(false);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadTransactions = async () => {
+      if (!isSupabaseConfigured) {
+        setIsLoading(false);
+        return;
+      }
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (userError || !userData.user) {
+        setIsLoading(false);
+        return;
+      }
+      setUserId(userData.user.id);
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("id,description,amount,type,category,date,time,receipt_url,receipt_name,receipt_type,created_at")
+        .eq("user_id", userData.user.id)
+        .order("created_at", { ascending: false });
+      if (!isActive) return;
+      if (error) {
+        toast({
+          title: "Failed to load transactions",
+          description: error.message,
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+      const mapped = (data ?? []).map((row) => mapTransactionRow(row as TransactionRow));
+      setTransactions(mapped);
+      setIsLoading(false);
+    };
+    loadTransactions();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const channel = supabase
+      .channel("transactions-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const created = mapTransactionRow(payload.new as TransactionRow);
+            setTransactions((prev) => (prev.some((tx) => tx.id === created.id) ? prev : [created, ...prev]));
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = mapTransactionRow(payload.new as TransactionRow);
+            setTransactions((prev) => prev.map((tx) => (tx.id === updated.id ? updated : tx)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setTransactions((prev) => prev.filter((tx) => tx.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   // Initialize AI service with transaction data
   useEffect(() => {
@@ -275,7 +486,10 @@ export default function Transactions() {
       date: tx.date,
     }));
     
-    aiService.initialize(trainingData, 280000); // Default monthly income
+    const incomeTotal = trainingData
+      .filter((tx) => tx.type === "income")
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    aiService.initialize(trainingData, incomeTotal);
     
     // Detect anomalies
     const anomalyMap: Record<string, { isAnomaly: boolean; severity: string; reason: string }> = {};
@@ -294,21 +508,166 @@ export default function Transactions() {
           severity: result.severity,
           reason: result.reason,
         };
+
+        const notificationId = `anomaly-${tx.id}`;
+        addNotification({
+          id: notificationId,
+          type: "anomaly",
+          title: "Anomaly detected",
+          message: result.reason,
+          createdAt: new Date().toISOString(),
+        });
+
+        if (!wasEmailSent(notificationId)) {
+          const to = getUserEmail();
+          if (to) {
+            fetch(import.meta.env.VITE_NOTIFICATION_API_URL ?? "http://localhost:5174/api/notifications", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to,
+                subject: "UniGuard Wallet anomaly detected",
+                text: result.reason,
+              }),
+            })
+              .then(() => {
+                markEmailSent(notificationId);
+              })
+              .catch((error) => {
+                console.error("Failed to send notification email", error);
+              });
+          }
+        }
       }
     });
     setAnomalies(anomalyMap);
   }, [transactions]);
 
-  const handleAddTransaction = (tx: Transaction) => {
-    setTransactions((prev) => [tx, ...prev]);
+  useEffect(() => {
+    if (!editingId) return;
+    const tx = transactions.find((item) => item.id === editingId);
+    if (!tx) return;
+    setEditDraft({
+      description: tx.description,
+      amount: tx.amount.toString(),
+      type: tx.type,
+      category: tx.category,
+    });
+  }, [editingId, transactions]);
+
+  const handleAddTransaction = async (tx: Transaction) => {
+    if (!userId) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to add transactions.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const { data, error } = await supabase
+      .from("transactions")
+      .insert({
+        user_id: userId,
+        description: tx.description,
+        amount: tx.amount,
+        type: tx.type,
+        category: tx.category,
+        date: tx.date,
+        time: tx.time,
+        receipt_url: tx.receiptUrl ?? null,
+        receipt_name: tx.receiptName ?? null,
+        receipt_type: tx.receiptType ?? null,
+      })
+      .select("id,description,amount,type,category,date,time,receipt_url,receipt_name,receipt_type,created_at")
+      .single();
+    if (error || !data) {
+      toast({
+        title: "Failed to add transaction",
+        description: error?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const saved = mapTransactionRow(data as TransactionRow);
+    setTransactions((prev) => [saved, ...prev]);
     toast({
       title: "Transaction added",
-      description: `${tx.type === "income" ? "Income" : "Expense"} of ${formatCurrency(tx.amount)} has been added.`,
+      description: `${saved.type === "income" ? "Income" : "Expense"} of ${formatCurrency(saved.amount)} has been added.`,
     });
   };
 
-  const handleDeleteTransaction = (id: string) => {
+  const handleSaveEdit = async () => {
+    if (!editingId) return;
+    const amountValue = parseFloat(editDraft.amount);
+    if (!editDraft.description.trim() || Number.isNaN(amountValue) || amountValue < 0) {
+      toast({
+        title: "Invalid transaction",
+        description: "Please provide a description and a valid amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const { error } = await supabase
+      .from("transactions")
+      .update({
+        description: editDraft.description.trim(),
+        amount: amountValue,
+        type: editDraft.type,
+        category: editDraft.category,
+      })
+      .eq("id", editingId)
+      .eq("user_id", userId ?? "");
+    if (error) {
+      toast({
+        title: "Update failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    setTransactions((prev) =>
+      prev.map((tx) =>
+        tx.id === editingId
+          ? {
+              ...tx,
+              description: editDraft.description.trim(),
+              amount: amountValue,
+              type: editDraft.type,
+              category: editDraft.category,
+            }
+          : tx
+      )
+    );
+    setEditingId(null);
+    toast({
+      title: "Transaction updated",
+      description: "Your changes have been saved.",
+    });
+  };
+
+  const handleRecategorize = () => {
+    const amountValue = parseFloat(editDraft.amount);
+    if (Number.isNaN(amountValue) || !editDraft.description.trim()) return;
+    const aiResult = aiService.categorizeTransaction(
+      editDraft.description,
+      amountValue,
+      undefined,
+      editDraft.type
+    );
+    setEditDraft((prev) => ({ ...prev, category: aiResult.category }));
+  };
+
+  const handleDeleteTransaction = async (id: string) => {
     const tx = transactions.find((t) => t.id === id);
+    const { error } = await supabase.from("transactions").delete().eq("id", id).eq("user_id", userId ?? "");
+    if (error) {
+      toast({
+        title: "Delete failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
     setTransactions((prev) => prev.filter((tx) => tx.id !== id));
     setSelectedIds((prev) => prev.filter((selectedId) => selectedId !== id));
     toast({
@@ -317,13 +676,97 @@ export default function Transactions() {
     });
   };
 
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
     const count = selectedIds.length;
+    if (!count) return;
+    const { error } = await supabase
+      .from("transactions")
+      .delete()
+      .in("id", selectedIds)
+      .eq("user_id", userId ?? "");
+    if (error) {
+      toast({
+        title: "Delete failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
     setTransactions((prev) => prev.filter((tx) => !selectedIds.includes(tx.id)));
     setSelectedIds([]);
     toast({
       title: "Transactions deleted",
       description: `${count} transaction${count > 1 ? "s" : ""} removed.`,
+    });
+  };
+
+  const getLatestTransaction = () => {
+    if (!transactions.length) return null;
+    return [...transactions].sort((a, b) => {
+      const dateA = new Date(`${a.date}T${a.time || "00:00"}`).getTime();
+      const dateB = new Date(`${b.date}T${b.time || "00:00"}`).getTime();
+      return dateB - dateA;
+    })[0];
+  };
+
+  const handleGenerateHistory = async () => {
+    if (!userId) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to generate history.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const base = getLatestTransaction();
+    if (!base) {
+      toast({
+        title: "Add a transaction first",
+        description: "Create at least one transaction to base the history on.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setIsSeeding(true);
+    const now = new Date();
+    const generated = Array.from({ length: 30 }, (_, idx) => {
+      const daysAgo = idx + 1;
+      const date = new Date(now);
+      date.setDate(now.getDate() - daysAgo);
+      const dateStr = date.toISOString().split("T")[0];
+      const timeStr = "12:00";
+      const variance = 0.7 + Math.random() * 0.6;
+      return {
+        user_id: userId,
+        description: `${base.description} (auto)`,
+        amount: Math.max(0, Math.round(base.amount * variance)),
+        type: base.type,
+        category: base.category,
+        date: dateStr,
+        time: timeStr,
+        receipt_url: null,
+        receipt_name: null,
+        receipt_type: null,
+      };
+    });
+    const { data, error } = await supabase
+      .from("transactions")
+      .insert(generated)
+      .select("id,description,amount,type,category,date,time,receipt_url,receipt_name,receipt_type,created_at");
+    setIsSeeding(false);
+    if (error || !data) {
+      toast({
+        title: "History generation failed",
+        description: error?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const mapped = (data ?? []).map((row) => mapTransactionRow(row as TransactionRow));
+    setTransactions((prev) => [...mapped, ...prev]);
+    toast({
+      title: "History generated",
+      description: "Added 30 days of transactions based on your latest entry.",
     });
   };
 
@@ -367,6 +810,12 @@ export default function Transactions() {
           </div>
         </motion.header>
 
+        {isLoading && (
+          <div className="glass-card rounded-xl p-4 text-sm text-muted-foreground">
+            Loading your transactions...
+          </div>
+        )}
+
         {/* Search and Filters */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -391,6 +840,15 @@ export default function Transactions() {
           >
             <Filter className="w-4 h-4 mr-2" />
             Filters
+          </Button>
+          <Button
+            variant="outline"
+            className="border-border hover:border-primary/50"
+            onClick={handleGenerateHistory}
+            disabled={isSeeding}
+          >
+            <Calendar className="w-4 h-4 mr-2" />
+            {isSeeding ? "Generating..." : "Generate History"}
           </Button>
         </motion.div>
 
@@ -462,6 +920,11 @@ export default function Transactions() {
 
         {/* Transaction List */}
         <div className="space-y-6">
+          {filteredTransactions.length === 0 && (
+            <div className="glass-card rounded-xl p-6 text-sm text-muted-foreground">
+              No transactions yet. Add your first entry to start tracking real data.
+            </div>
+          )}
           {Object.entries(groupedByDate).map(([date, transactions], groupIndex) => (
             <motion.div
               key={date}
@@ -531,6 +994,11 @@ export default function Transactions() {
                           <p className="text-sm font-medium text-foreground truncate">
                             {tx.description}
                           </p>
+                          {tx.receiptUrl && (
+                            <Badge variant="outline" className="text-xs px-1.5 py-0 border-primary/30 text-primary">
+                              Receipt
+                            </Badge>
+                          )}
                           {anomalies[tx.id]?.isAnomaly && (
                             <Badge 
                               variant="outline" 
@@ -554,6 +1022,16 @@ export default function Transactions() {
                         <p className="text-xs text-muted-foreground">
                           {tx.time} • {tx.category}
                         </p>
+                        {tx.receiptUrl && (
+                          <a
+                            href={tx.receiptUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-primary hover:underline"
+                          >
+                            View receipt
+                          </a>
+                        )}
                       </div>
 
                       {/* Amount */}
@@ -578,7 +1056,6 @@ export default function Transactions() {
                           onClick={(e) => {
                             e.stopPropagation();
                             setEditingId(tx.id);
-                            // TODO: Open edit modal
                           }}
                         >
                           <Edit3 className="w-4 h-4" />
@@ -626,6 +1103,78 @@ export default function Transactions() {
             />
           )}
         </AnimatePresence>
+
+        {/* Edit Transaction Modal */}
+        <Dialog open={!!editingId} onOpenChange={(open) => !open && setEditingId(null)}>
+          <DialogContent className="glass-card border-border">
+            <DialogHeader>
+              <DialogTitle>Edit Transaction</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="edit-description">Description</Label>
+                <Input
+                  id="edit-description"
+                  value={editDraft.description}
+                  onChange={(e) => setEditDraft((prev) => ({ ...prev, description: e.target.value }))}
+                  className="bg-muted/30 border-border mt-1"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="edit-amount">Amount (UGX)</Label>
+                  <Input
+                    id="edit-amount"
+                    type="number"
+                    value={editDraft.amount}
+                    onChange={(e) => setEditDraft((prev) => ({ ...prev, amount: e.target.value }))}
+                    className="bg-muted/30 border-border mt-1"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-type">Type</Label>
+                  <select
+                    id="edit-type"
+                    value={editDraft.type}
+                    onChange={(e) => setEditDraft((prev) => ({ ...prev, type: e.target.value as "income" | "expense" }))}
+                    className="w-full px-3 py-2 bg-muted/30 rounded-lg text-foreground text-sm border border-border focus:outline-none focus:ring-2 focus:ring-primary/50 mt-1"
+                  >
+                    <option value="expense">Expense</option>
+                    <option value="income">Income</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="edit-category">Category</Label>
+                <select
+                  id="edit-category"
+                  value={editDraft.category}
+                  onChange={(e) => setEditDraft((prev) => ({ ...prev, category: e.target.value }))}
+                  className="w-full px-3 py-2 bg-muted/30 rounded-lg text-foreground text-sm border border-border focus:outline-none focus:ring-2 focus:ring-primary/50 mt-1"
+                >
+                  {Object.keys(categoryIcons).map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-between">
+                <Button variant="outline" onClick={handleRecategorize}>
+                  <Sparkles className="w-4 h-4 mr-1" />
+                  AI Recategorize
+                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setEditingId(null)}>
+                    Cancel
+                  </Button>
+                  <Button className="bg-gradient-primary hover:opacity-90" onClick={handleSaveEdit}>
+                    Save Changes
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );

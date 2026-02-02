@@ -2,48 +2,22 @@ import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Wallet, Target, Zap, Calendar } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useEffect, useMemo, useState } from "react";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
-const stats = [
-  {
-    label: "Today's Balance",
-    value: "USh 2,45,680",
-    change: "+USh 12,400",
-    isPositive: true,
-    icon: Wallet,
-    color: "primary",
-    link: "/transactions",
-  },
-  {
-    label: "Monthly Health",
-    value: "87",
-    suffix: "/100",
-    change: "+5 pts",
-    isPositive: true,
-    icon: Zap,
-    color: "success",
-    link: "/reports",
-  },
-  {
-    label: "Active Goals",
-    value: "3",
-    suffix: " goals",
-    change: "85% on track",
-    isPositive: true,
-    icon: Target,
-    color: "accent",
-    link: "/goals",
-  },
-  {
-    label: "Next Deadline",
-    value: "14",
-    suffix: " days",
-    change: "Emergency Fund",
-    isPositive: null,
-    icon: Calendar,
-    color: "secondary",
-    link: "/goals",
-  },
-];
+interface Transaction {
+  id: string;
+  amount: number;
+  type: "income" | "expense";
+  date: string;
+}
+
+interface Goal {
+  id: string;
+  name: string;
+  deadline: string;
+  status: "on-track" | "mild-pressure" | "critical";
+}
 
 const colorClasses = {
   primary: {
@@ -69,6 +43,151 @@ const colorClasses = {
 };
 
 export default function QuickStats() {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadStats = async () => {
+      if (!isSupabaseConfigured) return;
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (userError || !userData.user) return;
+      setUserId(userData.user.id);
+      const { data: txData } = await supabase
+        .from("transactions")
+        .select("id,amount,type,date")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      setTransactions((txData ?? []) as Transaction[]);
+      const { data: goalData } = await supabase
+        .from("goals")
+        .select("id,name,deadline,status")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      setGoals((goalData ?? []) as Goal[]);
+    };
+    loadStats();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const txChannel = supabase
+      .channel("quick-stats-transactions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const created = payload.new as Transaction;
+            setTransactions((prev) => (prev.some((tx) => tx.id === created.id) ? prev : [...prev, created]));
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Transaction;
+            setTransactions((prev) => prev.map((tx) => (tx.id === updated.id ? updated : tx)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setTransactions((prev) => prev.filter((tx) => tx.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+
+    const goalsChannel = supabase
+      .channel("quick-stats-goals")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "goals", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const created = payload.new as Goal;
+            setGoals((prev) => (prev.some((goal) => goal.id === created.id) ? prev : [...prev, created]));
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Goal;
+            setGoals((prev) => prev.map((goal) => (goal.id === updated.id ? updated : goal)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setGoals((prev) => prev.filter((goal) => goal.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(txChannel);
+      supabase.removeChannel(goalsChannel);
+    };
+  }, [userId]);
+
+  const stats = useMemo(() => {
+    const income = transactions.filter((tx) => tx.type === "income").reduce((sum, tx) => sum + tx.amount, 0);
+    const expense = transactions.filter((tx) => tx.type === "expense").reduce((sum, tx) => sum + tx.amount, 0);
+    const balance = income - expense;
+    const savingsRate = income > 0 ? Math.max(0, Math.min(1, (income - expense) / income)) : 0;
+    const healthScore = Math.round(savingsRate * 100);
+    const activeGoals = goals.length;
+    const onTrackRatio = goals.length
+      ? Math.round((goals.filter((g) => g.status === "on-track").length / goals.length) * 100)
+      : 0;
+    const sortedDeadlines = goals
+      .map((goal) => ({ name: goal.name, date: new Date(goal.deadline) }))
+      .filter((goal) => !Number.isNaN(goal.date.getTime()))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+    const nextDeadline = sortedDeadlines[0];
+    const daysToDeadline = nextDeadline
+      ? Math.max(0, Math.ceil((nextDeadline.date.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+      : 0;
+
+    return [
+      {
+        label: "Today's Balance",
+        value: new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", maximumFractionDigits: 0 }).format(balance),
+        change: income > 0 ? `+${new Intl.NumberFormat("en-UG", { style: "currency", currency: "UGX", maximumFractionDigits: 0 }).format(income)}` : "No income yet",
+        isPositive: income > 0 ? balance >= 0 : null,
+        icon: Wallet,
+        color: "primary",
+        link: "/transactions",
+      },
+      {
+        label: "Monthly Health",
+        value: `${healthScore}`,
+        suffix: "/100",
+        change: income > 0 ? `${healthScore} pts` : "No data yet",
+        isPositive: income > 0 ? healthScore >= 50 : null,
+        icon: Zap,
+        color: "success",
+        link: "/reports",
+      },
+      {
+        label: "Active Goals",
+        value: `${activeGoals}`,
+        suffix: " goals",
+        change: goals.length ? `${onTrackRatio}% on track` : "No goals yet",
+        isPositive: goals.length ? onTrackRatio >= 50 : null,
+        icon: Target,
+        color: "accent",
+        link: "/goals",
+      },
+      {
+        label: "Next Deadline",
+        value: nextDeadline ? `${daysToDeadline}` : "—",
+        suffix: nextDeadline ? " days" : "",
+        change: nextDeadline ? nextDeadline.name : "No deadlines yet",
+        isPositive: null,
+        icon: Calendar,
+        color: "secondary",
+        link: "/goals",
+      },
+    ];
+  }, [transactions, goals]);
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {stats.map((stat, index) => {

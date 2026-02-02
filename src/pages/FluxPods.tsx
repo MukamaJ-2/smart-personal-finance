@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { aiService } from "@/lib/ai/ai-service";
 import type { TrainingTransaction } from "@/lib/ai/training-data";
 import { Badge } from "@/components/ui/badge";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 interface FluxPod {
   id: string;
@@ -33,66 +34,27 @@ interface FluxPod {
   children?: FluxPod[];
 }
 
-const initialFluxPods: FluxPod[] = [
-  {
-    id: "1",
-    name: "Essentials",
-    allocated: 80000,
-    spent: 45000,
-    status: "healthy",
-    velocity: 18,
-    children: [
-      { id: "1a", name: "Groceries", allocated: 25000, spent: 12000, status: "healthy", velocity: 22 },
-      { id: "1b", name: "Utilities", allocated: 15000, spent: 8000, status: "healthy", velocity: 25 },
-      { id: "1c", name: "Housing", allocated: 40000, spent: 25000, status: "healthy", velocity: 15 },
-    ],
-  },
-  {
-    id: "2",
-    name: "Entertainment",
-    allocated: 15000,
-    spent: 12500,
-    status: "warning",
-    velocity: 4,
-    children: [
-      { id: "2a", name: "Streaming", allocated: 2000, spent: 1500, status: "healthy", velocity: 10 },
-      { id: "2b", name: "Games", allocated: 3000, spent: 2800, status: "critical", velocity: 2 },
-      { id: "2c", name: "Events", allocated: 10000, spent: 8200, status: "warning", velocity: 5 },
-    ],
-  },
-  {
-    id: "3",
-    name: "Dining Out",
-    allocated: 10000,
-    spent: 9800,
-    status: "critical",
-    velocity: 1,
-  },
-  {
-    id: "4",
-    name: "Transport",
-    allocated: 8000,
-    spent: 3200,
-    status: "healthy",
-    velocity: 30,
-  },
-  {
-    id: "5",
-    name: "Shopping",
-    allocated: 12000,
-    spent: 5500,
-    status: "healthy",
-    velocity: 14,
-  },
-  {
-    id: "6",
-    name: "Health & Fitness",
-    allocated: 5000,
-    spent: 2500,
-    status: "healthy",
-    velocity: 20,
-  },
-];
+interface FluxPodRow {
+  id: string;
+  name: string;
+  allocated: number;
+  spent: number;
+  status: "healthy" | "warning" | "critical";
+  velocity: number;
+  children: FluxPod[] | null;
+}
+
+function mapFluxPodRow(row: FluxPodRow): FluxPod {
+  return {
+    id: row.id,
+    name: row.name,
+    allocated: row.allocated,
+    spent: row.spent,
+    status: row.status,
+    velocity: row.velocity,
+    children: row.children ?? undefined,
+  };
+}
 
 const statusConfig = {
   healthy: {
@@ -500,7 +462,15 @@ function PodCard({
   );
 }
 
-function NewPodDialog({ onAdd, existingPods }: { onAdd: (pod: FluxPod) => void; existingPods: FluxPod[] }) {
+function NewPodDialog({
+  onAdd,
+  existingPods,
+  availableBudget,
+}: {
+  onAdd: (pod: FluxPod) => void;
+  existingPods: FluxPod[];
+  availableBudget: number;
+}) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [allocated, setAllocated] = useState("");
@@ -511,7 +481,7 @@ function NewPodDialog({ onAdd, existingPods }: { onAdd: (pod: FluxPod) => void; 
     if (name && name.length > 2) {
       const suggestion = aiService.suggestNewPodAllocation(
         name,
-        100000, // Available budget placeholder
+        availableBudget,
         existingPods.map((p) => ({ name: p.name, allocated: p.allocated }))
       );
       
@@ -528,7 +498,7 @@ function NewPodDialog({ onAdd, existingPods }: { onAdd: (pod: FluxPod) => void; 
     } else {
       setAiSuggestion(null);
     }
-  }, [name, existingPods]);
+  }, [name, existingPods, availableBudget, allocated]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -585,7 +555,7 @@ function NewPodDialog({ onAdd, existingPods }: { onAdd: (pod: FluxPod) => void; 
               type="number"
               value={allocated}
               onChange={(e) => setAllocated(e.target.value)}
-              placeholder="100000"
+              placeholder={formatCurrency(availableBudget)}
               className="bg-muted/30 border-border mt-1"
               required
               min="0"
@@ -624,24 +594,99 @@ function NewPodDialog({ onAdd, existingPods }: { onAdd: (pod: FluxPod) => void; 
 }
 
 export default function FluxPods() {
-  const [fluxPods, setFluxPods] = useState<FluxPod[]>(initialFluxPods);
+  const [fluxPods, setFluxPods] = useState<FluxPod[]>([]);
   const [forecasts, setForecasts] = useState<Record<string, { daysLeft: number; trend: string }>>({});
+  const [monthlyIncome, setMonthlyIncome] = useState(0);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadData = async () => {
+      if (!isSupabaseConfigured) {
+        setIsLoading(false);
+        return;
+      }
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (userError || !userData.user) {
+        setIsLoading(false);
+        return;
+      }
+      setUserId(userData.user.id);
+
+      const { data: podData, error: podError } = await supabase
+        .from("flux_pods")
+        .select("id,name,allocated,spent,status,velocity,children,created_at")
+        .eq("user_id", userData.user.id)
+        .order("created_at", { ascending: true });
+      if (!isActive) return;
+      if (podError) {
+        toast({
+          title: "Failed to load pods",
+          description: podError.message,
+          variant: "destructive",
+        });
+      } else {
+        const mapped = (podData ?? []).map((pod) => mapFluxPodRow(pod as FluxPodRow));
+        setFluxPods(mapped);
+      }
+
+      const { data: transactionData, error: txError } = await supabase
+        .from("transactions")
+        .select("description,amount,category,type,date")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      if (txError) {
+        console.error("Failed to load transactions for flux pods", txError);
+        setMonthlyIncome(0);
+        aiService.initialize([], 0);
+      } else {
+        const trainingData = (transactionData ?? []) as TrainingTransaction[];
+        const incomeTotal = trainingData
+          .filter((tx) => tx.type === "income")
+          .reduce((sum, tx) => sum + tx.amount, 0);
+        setMonthlyIncome(incomeTotal);
+        aiService.initialize(trainingData, incomeTotal);
+      }
+      setIsLoading(false);
+    };
+    loadData();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const channel = supabase
+      .channel("flux-pods-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "flux_pods", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const created = mapFluxPodRow(payload.new as FluxPodRow);
+            setFluxPods((prev) => (prev.some((pod) => pod.id === created.id) ? prev : [...prev, created]));
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = mapFluxPodRow(payload.new as FluxPodRow);
+            setFluxPods((prev) => prev.map((pod) => (pod.id === updated.id ? updated : pod)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setFluxPods((prev) => prev.filter((pod) => pod.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   // Initialize AI service
   useEffect(() => {
-    // Convert pods to training transactions (simulated)
-    const trainingData: TrainingTransaction[] = fluxPods.flatMap((pod) => [
-      {
-        description: `${pod.name} spending`,
-        amount: pod.spent,
-        category: pod.name,
-        type: "expense" as const,
-        date: new Date().toISOString(),
-      },
-    ]);
-    
-    aiService.initialize(trainingData, 280000);
-    
     // Generate forecasts for each pod
     const forecastMap: Record<string, { daysLeft: number; trend: string }> = {};
     fluxPods.forEach((pod) => {
@@ -654,11 +699,62 @@ export default function FluxPods() {
     setForecasts(forecastMap);
   }, [fluxPods]);
 
-  const handleAddPod = (pod: FluxPod) => {
-    setFluxPods((prev) => [...prev, pod]);
+  const handleAddPod = async (pod: FluxPod) => {
+    if (!userId) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to add pods.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const { data, error } = await supabase
+      .from("flux_pods")
+      .insert({
+        user_id: userId,
+        name: pod.name,
+        allocated: pod.allocated,
+        spent: pod.spent,
+        status: pod.status,
+        velocity: pod.velocity,
+        children: pod.children ?? null,
+      })
+      .select("id,name,allocated,spent,status,velocity,children")
+      .single();
+    if (error || !data) {
+      toast({
+        title: "Failed to add pod",
+        description: error?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const saved = mapFluxPodRow(data as FluxPodRow);
+    setFluxPods((prev) => [...prev, saved]);
   };
 
-  const handleUpdatePod = (podId: string, updates: Partial<FluxPod>) => {
+  const handleUpdatePod = async (podId: string, updates: Partial<FluxPod>) => {
+    if (!userId) return;
+    const { error } = await supabase
+      .from("flux_pods")
+      .update({
+        name: updates.name,
+        allocated: updates.allocated,
+        spent: updates.spent,
+        status: updates.status,
+        velocity: updates.velocity,
+        children: updates.children ?? null,
+      })
+      .eq("id", podId)
+      .eq("user_id", userId);
+    if (error) {
+      toast({
+        title: "Update failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
     setFluxPods((prev) =>
       prev.map((pod) => {
         if (pod.id === podId) {
@@ -678,7 +774,8 @@ export default function FluxPods() {
     );
   };
 
-  const handleReallocate = (fromPodId: string, toPodId: string, amount: number) => {
+  const handleReallocate = async (fromPodId: string, toPodId: string, amount: number) => {
+    if (!userId) return;
     setFluxPods((prev) =>
       prev.map((pod) => {
         if (pod.id === fromPodId) {
@@ -713,6 +810,22 @@ export default function FluxPods() {
         return pod;
       })
     );
+    const fromPod = fluxPods.find((pod) => pod.id === fromPodId);
+    const toPod = fluxPods.find((pod) => pod.id === toPodId);
+    if (fromPod) {
+      await supabase
+        .from("flux_pods")
+        .update({ allocated: fromPod.allocated - amount })
+        .eq("id", fromPodId)
+        .eq("user_id", userId);
+    }
+    if (toPod) {
+      await supabase
+        .from("flux_pods")
+        .update({ allocated: toPod.allocated + amount })
+        .eq("id", toPodId)
+        .eq("user_id", userId);
+    }
   };
 
   const totalAllocated = fluxPods.reduce((sum, pod) => sum + pod.allocated, 0);
@@ -720,6 +833,7 @@ export default function FluxPods() {
   const healthyCount = fluxPods.filter((p) => p.status === "healthy").length;
   const warningCount = fluxPods.filter((p) => p.status === "warning").length;
   const criticalCount = fluxPods.filter((p) => p.status === "critical").length;
+  const availableBudget = Math.max(monthlyIncome - totalAllocated, 0);
 
   return (
     <AppLayout>
@@ -734,8 +848,18 @@ export default function FluxPods() {
             <h1 className="font-display text-2xl font-bold text-foreground">Flux Pods</h1>
             <p className="text-muted-foreground text-sm mt-1">Living budget containers</p>
           </div>
-          <NewPodDialog onAdd={handleAddPod} existingPods={fluxPods} />
+          <NewPodDialog
+            onAdd={handleAddPod}
+            existingPods={fluxPods}
+            availableBudget={availableBudget}
+          />
         </motion.header>
+
+        {isLoading && (
+          <div className="glass-card rounded-xl p-4 text-sm text-muted-foreground">
+            Loading your flux pods...
+          </div>
+        )}
 
         {/* Overview Stats */}
         <motion.div
@@ -768,6 +892,11 @@ export default function FluxPods() {
 
         {/* Pods Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          {fluxPods.length === 0 && (
+            <div className="glass-card rounded-xl p-6 text-sm text-muted-foreground">
+              No pods yet. Create a pod to start tracking real budgets.
+            </div>
+          )}
           {fluxPods.map((pod, index) => (
             <PodCard 
               key={pod.id} 

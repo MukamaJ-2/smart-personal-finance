@@ -33,9 +33,16 @@ export class AIService {
   categorizeTransaction(
     description: string,
     amount: number,
-    merchant?: string
+    merchant?: string,
+    transactionType?: "income" | "expense"
   ): CategorizationResult {
-    return categorizeTransaction(description, amount, merchant, this.historicalTransactions);
+    return categorizeTransaction(
+      description,
+      amount,
+      merchant,
+      this.historicalTransactions,
+      transactionType
+    );
   }
 
   /**

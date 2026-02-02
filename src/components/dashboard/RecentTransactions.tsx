@@ -1,7 +1,9 @@
 import { motion } from "framer-motion";
-import { ArrowUpRight, ArrowDownLeft, Coffee, ShoppingBag, Car, Utensils } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Briefcase, Car, Coffee, ShoppingBag, Utensils } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useEffect, useMemo, useState } from "react";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 interface Transaction {
   id: string;
@@ -9,57 +11,9 @@ interface Transaction {
   amount: number;
   type: "income" | "expense";
   category: string;
-  icon: typeof Coffee;
+  date: string;
   time: string;
 }
-
-const transactions: Transaction[] = [
-  {
-    id: "1",
-    description: "Salary Deposit",
-    amount: 280000,
-    type: "income",
-    category: "Income",
-    icon: ArrowDownLeft,
-    time: "Today, 9:00 AM",
-  },
-  {
-    id: "2",
-    description: "Starbucks Coffee",
-    amount: 450,
-    type: "expense",
-    category: "Dining",
-    icon: Coffee,
-    time: "Today, 10:30 AM",
-  },
-  {
-    id: "3",
-    description: "Amazon Purchase",
-    amount: 2499,
-    type: "expense",
-    category: "Shopping",
-    icon: ShoppingBag,
-    time: "Yesterday",
-  },
-  {
-    id: "4",
-    description: "Uber Ride",
-    amount: 320,
-    type: "expense",
-    category: "Transport",
-    icon: Car,
-    time: "Yesterday",
-  },
-  {
-    id: "5",
-    description: "Restaurant Dinner",
-    amount: 1850,
-    type: "expense",
-    category: "Dining",
-    icon: Utensils,
-    time: "2 days ago",
-  },
-];
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-UG", {
@@ -70,6 +24,77 @@ function formatCurrency(amount: number): string {
 }
 
 export default function RecentTransactions() {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadTransactions = async () => {
+      if (!isSupabaseConfigured) return;
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (userError || !userData.user) return;
+      setUserId(userData.user.id);
+      const { data } = await supabase
+        .from("transactions")
+        .select("id,description,amount,type,category,date,time")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      setTransactions((data ?? []) as Transaction[]);
+    };
+    loadTransactions();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const channel = supabase
+      .channel("recent-transactions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const created = payload.new as Transaction;
+            setTransactions((prev) => (prev.some((tx) => tx.id === created.id) ? prev : [...prev, created]));
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Transaction;
+            setTransactions((prev) => prev.map((tx) => (tx.id === updated.id ? updated : tx)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setTransactions((prev) => prev.filter((tx) => tx.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  const recentTransactions = useMemo(() => {
+    return [...transactions]
+      .sort((a, b) => {
+        const dateA = new Date(`${a.date}T${a.time || "00:00"}`).getTime();
+        const dateB = new Date(`${b.date}T${b.time || "00:00"}`).getTime();
+        return dateB - dateA;
+      })
+      .slice(0, 5);
+  }, [transactions]);
+
+  const categoryIconMap: Record<string, typeof Coffee> = {
+    Dining: Utensils,
+    "Eating Out": Utensils,
+    Coffee: Coffee,
+    Shopping: ShoppingBag,
+    Transport: Car,
+    Income: ArrowDownLeft,
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -88,7 +113,17 @@ export default function RecentTransactions() {
       </div>
 
       <div className="space-y-3">
-        {transactions.map((tx, index) => (
+        {recentTransactions.length === 0 && (
+          <div className="text-xs text-muted-foreground">
+            No transactions yet. Add your first entry to see activity here.
+          </div>
+        )}
+        {recentTransactions.map((tx, index) => {
+          const icon =
+            tx.type === "income"
+              ? ArrowDownLeft
+              : categoryIconMap[tx.category] || Briefcase;
+          return (
           <Link key={tx.id} to="/transactions">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
@@ -104,13 +139,15 @@ export default function RecentTransactions() {
                   : "bg-muted text-muted-foreground"
               )}
             >
-              <tx.icon className="w-4 h-4" />
+              <icon className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">
                 {tx.description}
               </p>
-              <p className="text-xs text-muted-foreground">{tx.time}</p>
+              <p className="text-xs text-muted-foreground">
+                {tx.date} {tx.time}
+              </p>
             </div>
             <div className="text-right">
               <p
@@ -126,7 +163,8 @@ export default function RecentTransactions() {
             </div>
           </motion.div>
           </Link>
-        ))}
+        );
+        })}
       </div>
     </motion.div>
   );

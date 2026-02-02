@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageSquare, Send, Mic, Sparkles, TrendingUp, Target, Zap, BarChart3, Lightbulb } from "lucide-react";
 import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { buildAiResponse } from "@/lib/ai/companion";
 
 interface Message {
   id: string;
@@ -21,20 +22,69 @@ const quickActions = [
   { icon: BarChart3, label: "Financial Health", query: "What's my current financial health score?" },
 ];
 
-const sampleMessages: Message[] = [
-  {
-    id: "1",
-    role: "assistant",
-    content: "Hello! I'm your FinNexus AI companion. I can help you analyze spending patterns, plan goals, optimize your budget, and provide personalized financial insights. What would you like to explore?",
-    timestamp: new Date(),
-    suggestions: ["Spending analysis", "Goal progress", "Budget tips"],
-  },
-];
+const COMPANION_STORAGE_KEY = "uniguard.companion.messages";
 
 export default function Companion() {
-  const [messages, setMessages] = useState<Message[]>(sampleMessages);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(COMPANION_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as Array<Omit<Message, "timestamp"> & { timestamp: string }>;
+      return parsed.map((msg) => ({ ...msg, timestamp: new Date(msg.timestamp) }));
+    } catch (error) {
+      console.error("Failed to load companion messages", error);
+      return [];
+    }
+  });
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const payload = messages.map((msg) => ({
+        ...msg,
+        timestamp: msg.timestamp.toISOString(),
+      }));
+      window.localStorage.setItem(COMPANION_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.error("Failed to save companion messages", error);
+    }
+  }, [messages]);
+
+  const handleVoiceInput = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast({
+        title: "Voice input unavailable",
+        description: "Your browser does not support speech recognition.",
+      });
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0]?.[0]?.transcript;
+      if (transcript) setInput(transcript);
+    };
+    recognition.onerror = () => {
+      toast({
+        title: "Voice input failed",
+        description: "Please try again or type your message.",
+        variant: "destructive",
+      });
+    };
+    recognition.start();
+    toast({
+      title: "Listening...",
+      description: "Speak your question clearly.",
+    });
+  };
 
   const handleSend = () => {
     if (!input.trim() || isTyping) return;
@@ -50,34 +100,16 @@ export default function Companion() {
     setInput("");
     setIsTyping(true);
 
-    // Simulate AI response
+    // AI response from local models (simulated data)
     setTimeout(() => {
-      const responses: Record<string, string> = {
-        "spending": "Based on your recent transactions, I notice you've spent ₹45,000 on essentials this month, which is 56% of your allocated budget. Your dining expenses are trending up by 15% compared to last month. Consider setting up alerts for the 'Dining Out' flux pod.",
-        "goal": "You're making excellent progress! Your Emergency Fund is at 82% completion with 14 days remaining. At your current contribution rate, you'll reach the target on time. Your Japan Trip goal needs attention - you're at 34% with only 80 days left. I recommend increasing monthly contributions to ₹55,000.",
-        "budget": "Here are 3 budget optimization tips:\n1. Your Entertainment pod is at 83% capacity - consider pausing some subscriptions\n2. Transport expenses are well-managed at 40% usage\n3. You could save ₹5,000/month by reducing dining out frequency by 20%",
-        "health": "Your financial health score is 87/100 - Excellent! 🎉\n\nStrengths:\n• Strong savings rate (28%)\n• Most goals on track\n• Healthy emergency fund\n\nAreas to improve:\n• Reduce entertainment spending\n• Optimize dining expenses",
-      };
-
-      const lowerInput = input.toLowerCase();
-      let response = "I'm analyzing your request. Based on your financial data, I can provide insights and recommendations. Would you like me to dive deeper into any specific area?";
-
-      if (lowerInput.includes("spending") || lowerInput.includes("expense")) {
-        response = responses["spending"];
-      } else if (lowerInput.includes("goal") || lowerInput.includes("target")) {
-        response = responses["goal"];
-      } else if (lowerInput.includes("budget") || lowerInput.includes("tip")) {
-        response = responses["budget"];
-      } else if (lowerInput.includes("health") || lowerInput.includes("score")) {
-        response = responses["health"];
-      }
+      const aiResponse = buildAiResponse(userMessage.content);
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: response,
+        content: aiResponse.content,
         timestamp: new Date(),
-        suggestions: ["Tell me more", "Show details", "Set up alerts"],
+        suggestions: aiResponse.suggestions,
       };
       setMessages((prev) => [...prev, aiMessage]);
       setIsTyping(false);
@@ -149,6 +181,15 @@ export default function Companion() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-hide">
             <AnimatePresence>
+              {messages.length === 0 && !isTyping && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-sm text-muted-foreground"
+                >
+                  Start a conversation to see responses here.
+                </motion.div>
+              )}
               {messages.map((message) => (
                 <motion.div
                   key={message.id}
@@ -231,12 +272,7 @@ export default function Companion() {
                 size="icon"
                 className="text-muted-foreground hover:text-foreground h-8 w-8"
                 disabled={isTyping}
-                onClick={() => {
-                  toast({
-                    title: "Voice input",
-                    description: "Voice input for AI companion will be available soon.",
-                  });
-                }}
+                onClick={handleVoiceInput}
               >
                 <Mic className="w-4 h-4" />
               </Button>

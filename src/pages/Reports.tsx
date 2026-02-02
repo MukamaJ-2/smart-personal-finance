@@ -16,6 +16,7 @@ import {
 import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   LineChart as RechartsLineChart,
@@ -83,14 +84,14 @@ const insights = [
   {
     title: "Top Category",
     value: "Essentials",
-    change: "₹45,000 spent",
+    change: "USh 45,000 spent",
     isPositive: null,
     icon: DollarSign,
     color: "text-primary",
   },
   {
     title: "Avg Daily Spend",
-    value: "₹4,200",
+    value: "USh 4,200",
     change: "this week",
     isPositive: null,
     icon: Calendar,
@@ -108,10 +109,55 @@ function formatCurrency(amount: number): string {
 
 export default function Reports() {
   const [timeRange, setTimeRange] = useState<"week" | "month" | "year">("month");
+  const [showFilters, setShowFilters] = useState(false);
 
-  const totalIncome = monthlyData.reduce((sum, d) => sum + d.income, 0);
-  const totalExpenses = monthlyData.reduce((sum, d) => sum + d.expenses, 0);
-  const totalSavings = monthlyData.reduce((sum, d) => sum + d.savings, 0);
+  const monthlyWindow =
+    timeRange === "year"
+      ? monthlyData
+      : timeRange === "month"
+        ? monthlyData.slice(-3)
+        : monthlyData.slice(-1);
+
+  const totalIncome = monthlyWindow.reduce((sum, d) => sum + d.income, 0);
+  const totalExpenses = monthlyWindow.reduce((sum, d) => sum + d.expenses, 0);
+  const totalSavings = monthlyWindow.reduce((sum, d) => sum + d.savings, 0);
+
+  const exportReport = () => {
+    const rows: string[][] = [];
+    rows.push([`Report Export (${timeRange})`]);
+    rows.push([]);
+    rows.push(["Monthly Summary"]);
+    rows.push(["Month", "Income", "Expenses", "Savings"]);
+    monthlyWindow.forEach((row) => {
+      rows.push([row.month, row.income.toString(), row.expenses.toString(), row.savings.toString()]);
+    });
+    rows.push([]);
+    rows.push(["Weekly Spending"]);
+    rows.push(["Day", "Amount"]);
+    weeklyData.forEach((row) => {
+      rows.push([row.day, row.amount.toString()]);
+    });
+    rows.push([]);
+    rows.push(["Category Distribution"]);
+    rows.push(["Category", "Amount"]);
+    categoryData.forEach((row) => {
+      rows.push([row.name, row.value.toString()]);
+    });
+
+    const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `uniguard-wallet-report-${timeRange}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Report exported",
+      description: "Your CSV report has been downloaded.",
+    });
+  };
 
   return (
     <AppLayout>
@@ -138,10 +184,7 @@ export default function Reports() {
               variant="outline" 
               className="border-border hover:border-primary/50"
               onClick={() => {
-                toast({
-                  title: "Filter options",
-                  description: "Advanced filtering options will be available soon.",
-                });
+                setShowFilters(true);
               }}
             >
               <Filter className="w-4 h-4 mr-2" />
@@ -150,10 +193,7 @@ export default function Reports() {
             <Button 
               className="bg-gradient-primary hover:opacity-90"
               onClick={() => {
-                toast({
-                  title: "Export report",
-                  description: "Report export feature will be available soon.",
-                });
+                exportReport();
               }}
             >
               <Download className="w-4 h-4 mr-2" />
@@ -220,7 +260,7 @@ export default function Reports() {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <RechartsLineChart data={monthlyData}>
+                  <RechartsLineChart data={monthlyWindow}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted))" />
                     <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" />
                     <YAxis stroke="hsl(var(--muted-foreground))" />
@@ -300,7 +340,7 @@ export default function Reports() {
                   <p className="font-mono text-2xl font-bold text-success">
                     {formatCurrency(totalIncome)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">Last 6 months</p>
+                  <p className="text-xs text-muted-foreground mt-1">Selected range</p>
                 </CardContent>
               </Card>
               <Card className="glass-card border-border">
@@ -311,7 +351,7 @@ export default function Reports() {
                   <p className="font-mono text-2xl font-bold text-foreground">
                     {formatCurrency(totalIncome / monthlyData.length)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">Per month</p>
+                  <p className="text-xs text-muted-foreground mt-1">Average</p>
                 </CardContent>
               </Card>
               <Card className="glass-card border-border">
@@ -336,7 +376,7 @@ export default function Reports() {
                   <p className="font-mono text-2xl font-bold text-destructive">
                     {formatCurrency(totalExpenses)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">Last 6 months</p>
+                  <p className="text-xs text-muted-foreground mt-1">Selected range</p>
                 </CardContent>
               </Card>
               <Card className="glass-card border-border">
@@ -347,7 +387,7 @@ export default function Reports() {
                   <p className="font-mono text-2xl font-bold text-foreground">
                     {formatCurrency(totalExpenses / monthlyData.length)}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">Per month</p>
+                  <p className="text-xs text-muted-foreground mt-1">Average</p>
                 </CardContent>
               </Card>
               <Card className="glass-card border-border">
@@ -419,6 +459,35 @@ export default function Reports() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        <Dialog open={showFilters} onOpenChange={setShowFilters}>
+          <DialogContent className="glass-card border-border">
+            <DialogHeader>
+              <DialogTitle>Filter Reports</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">
+                  Time Range
+                </label>
+                <select
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value as "week" | "month" | "year")}
+                  className="w-full px-3 py-2 bg-muted/30 rounded-lg text-foreground text-sm border border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="week">Week</option>
+                  <option value="month">Month</option>
+                  <option value="year">Year</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setShowFilters(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );

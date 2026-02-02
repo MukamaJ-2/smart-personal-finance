@@ -1,9 +1,10 @@
-import { useRef, useMemo } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Sphere, Html, Float } from "@react-three/drei";
 import * as THREE from "three";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 interface NexusNodeProps {
   position: [number, number, number];
@@ -13,6 +14,23 @@ interface NexusNodeProps {
   size?: number;
   onClick?: () => void;
   link?: string;
+}
+
+interface Transaction {
+  id: string;
+  amount: number;
+  type: "income" | "expense";
+}
+
+interface FluxPod {
+  id: string;
+  allocated: number;
+  spent: number;
+}
+
+interface Goal {
+  id: string;
+  name: string;
 }
 
 function NexusNode({ position, color, label, value, size = 0.5, onClick, link }: NexusNodeProps) {
@@ -165,14 +183,13 @@ function CentralCore() {
   );
 }
 
-function Scene({ onNodeClick }: { onNodeClick?: (link: string) => void }) {
-  const nodes = [
-    { position: [3, 0.5, 0] as [number, number, number], color: "#22c55e", label: "Income", value: "USh 2.8M", link: "/transactions" },
-    { position: [-2.5, 1, 1.5] as [number, number, number], color: "#00d4ff", label: "Flux Pods", value: "USh 1.2M", link: "/flux-pods" },
-    { position: [-1, -1.5, 2.5] as [number, number, number], color: "#f59e0b", label: "Goals", value: "3 Active", link: "/goals" },
-    { position: [1.5, -1, -2.5] as [number, number, number], color: "#a855f7", label: "Net Worth", value: "USh 8.5M", link: "/reports" },
-    { position: [-2, 0, -2] as [number, number, number], color: "#ef4444", label: "Expenses", value: "USh 450K", link: "/transactions" },
-  ];
+function Scene({
+  nodes,
+  onNodeClick,
+}: {
+  nodes: NexusNodeProps[];
+  onNodeClick?: (link: string) => void;
+}) {
 
   return (
     <>
@@ -201,11 +218,11 @@ function Scene({ onNodeClick }: { onNodeClick?: (link: string) => void }) {
       ))}
 
       {/* Data Flow Lines */}
-      <DataFlowLine start={[0, 0, 0]} end={nodes[0].position} color="#22c55e" />
-      <DataFlowLine start={[0, 0, 0]} end={nodes[1].position} color="#00d4ff" />
-      <DataFlowLine start={[0, 0, 0]} end={nodes[2].position} color="#f59e0b" />
-      <DataFlowLine start={[0, 0, 0]} end={nodes[3].position} color="#a855f7" />
-      <DataFlowLine start={nodes[0].position} end={nodes[4].position} color="#ef4444" />
+      {nodes[0] && <DataFlowLine start={[0, 0, 0]} end={nodes[0].position} color="#22c55e" />}
+      {nodes[1] && <DataFlowLine start={[0, 0, 0]} end={nodes[1].position} color="#00d4ff" />}
+      {nodes[2] && <DataFlowLine start={[0, 0, 0]} end={nodes[2].position} color="#f59e0b" />}
+      {nodes[3] && <DataFlowLine start={[0, 0, 0]} end={nodes[3].position} color="#a855f7" />}
+      {nodes[4] && <DataFlowLine start={nodes[0].position} end={nodes[4].position} color="#ef4444" />}
 
       {/* Controls */}
       <OrbitControls
@@ -222,10 +239,141 @@ function Scene({ onNodeClick }: { onNodeClick?: (link: string) => void }) {
 
 export default function FinancialNexus() {
   const navigate = useNavigate();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [fluxPods, setFluxPods] = useState<FluxPod[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const handleNodeClick = (link: string) => {
     navigate(link);
   };
+
+  useEffect(() => {
+    let isActive = true;
+    const loadData = async () => {
+      if (!isSupabaseConfigured) return;
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (userError || !userData.user) return;
+      setUserId(userData.user.id);
+      const { data: txData } = await supabase
+        .from("transactions")
+        .select("id,amount,type")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      setTransactions((txData ?? []) as Transaction[]);
+      const { data: podData } = await supabase
+        .from("flux_pods")
+        .select("id,allocated,spent")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      setFluxPods((podData ?? []) as FluxPod[]);
+      const { data: goalData } = await supabase
+        .from("goals")
+        .select("id,name")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      setGoals((goalData ?? []) as Goal[]);
+    };
+    loadData();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    const txChannel = supabase
+      .channel("nexus-transactions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            setTransactions((prev) => [...prev, payload.new as Transaction]);
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Transaction;
+            setTransactions((prev) => prev.map((tx) => (tx.id === updated.id ? updated : tx)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setTransactions((prev) => prev.filter((tx) => tx.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+
+    const podChannel = supabase
+      .channel("nexus-pods")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "flux_pods", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            setFluxPods((prev) => [...prev, payload.new as FluxPod]);
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as FluxPod;
+            setFluxPods((prev) => prev.map((pod) => (pod.id === updated.id ? updated : pod)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setFluxPods((prev) => prev.filter((pod) => pod.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+
+    const goalsChannel = supabase
+      .channel("nexus-goals")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "goals", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            setGoals((prev) => [...prev, payload.new as Goal]);
+          }
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Goal;
+            setGoals((prev) => prev.map((goal) => (goal.id === updated.id ? updated : goal)));
+          }
+          if (payload.eventType === "DELETE") {
+            const removedId = (payload.old as { id: string }).id;
+            setGoals((prev) => prev.filter((goal) => goal.id !== removedId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(txChannel);
+      supabase.removeChannel(podChannel);
+      supabase.removeChannel(goalsChannel);
+    };
+  }, [userId]);
+
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("en-UG", {
+      style: "currency",
+      currency: "UGX",
+      maximumFractionDigits: 0,
+    }).format(value);
+
+  const nodes = useMemo(() => {
+    const income = transactions.filter((tx) => tx.type === "income").reduce((sum, tx) => sum + tx.amount, 0);
+    const expenses = transactions.filter((tx) => tx.type === "expense").reduce((sum, tx) => sum + tx.amount, 0);
+    const podsAllocated = fluxPods.reduce((sum, pod) => sum + pod.allocated, 0);
+    const netWorth = income - expenses;
+
+    return [
+      { position: [3, 0.5, 0] as [number, number, number], color: "#22c55e", label: "Income", value: formatCurrency(income), link: "/transactions" },
+      { position: [-2.5, 1, 1.5] as [number, number, number], color: "#00d4ff", label: "Flux Pods", value: formatCurrency(podsAllocated), link: "/flux-pods" },
+      { position: [-1, -1.5, 2.5] as [number, number, number], color: "#f59e0b", label: "Goals", value: goals.length ? `${goals.length} Active` : "No Goals", link: "/goals" },
+      { position: [1.5, -1, -2.5] as [number, number, number], color: "#a855f7", label: "Net Worth", value: formatCurrency(netWorth), link: "/reports" },
+      { position: [-2, 0, -2] as [number, number, number], color: "#ef4444", label: "Expenses", value: formatCurrency(expenses), link: "/transactions" },
+    ];
+  }, [transactions, fluxPods, goals]);
 
   return (
     <div className="w-full h-full min-h-[500px] relative">
@@ -234,7 +382,7 @@ export default function FinancialNexus() {
         gl={{ antialias: true, alpha: true }}
         style={{ background: "transparent" }}
       >
-        <Scene onNodeClick={handleNodeClick} />
+        <Scene nodes={nodes} onNodeClick={handleNodeClick} />
       </Canvas>
       
       {/* Overlay gradient */}

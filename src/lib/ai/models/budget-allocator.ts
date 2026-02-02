@@ -3,8 +3,9 @@
  * Simulates a trained optimization model for intelligent budget allocation
  */
 
-import type { TrainingTransaction, TrainingSpendingPattern } from "../training-data";
+import type { TrainingTransaction } from "../training-data";
 import { forecastSpending } from "./spending-forecaster";
+import { trainedBudgetShares } from "./artifacts/budget-allocator";
 
 export interface BudgetAllocation {
   category: string;
@@ -20,6 +21,10 @@ export interface AllocationRecommendation {
   totalSuggested: number;
   expectedSavings: number;
   riskAssessment: "low" | "medium" | "high";
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 /**
@@ -42,7 +47,7 @@ export function suggestBudgetAllocation(
       if (!categorySpending[tx.category]) {
         categorySpending[tx.category] = { total: 0, count: 0, avg: 0 };
       }
-      categorySpending[tx.category].total += tx.amount;
+      categorySpending[tx.category].total += Math.abs(tx.amount);
       categorySpending[tx.category].count += 1;
     });
   
@@ -55,8 +60,9 @@ export function suggestBudgetAllocation(
   const timeSpan = dates.length > 0 
     ? (Math.max(...dates) - Math.min(...dates)) / (1000 * 60 * 60 * 24) 
     : 30;
+  const timeSpanDays = Math.max(timeSpan, 1);
   const monthlySpendingTotal = Object.values(categorySpending)
-    .reduce((sum, cat) => sum + (cat.total / timeSpan) * 30, 0);
+    .reduce((sum, cat) => sum + (cat.total / timeSpanDays) * 30, 0);
   
   // Calculate goal requirements
   const totalGoalContributions = activeGoals.reduce(
@@ -66,33 +72,58 @@ export function suggestBudgetAllocation(
   
   // Calculate available for allocation (income - goals - buffer)
   const buffer = monthlyIncome * 0.1; // 10% buffer
-  const allocatable = monthlyIncome - totalGoalContributions - buffer;
+  const computedAllocatable = Math.max(monthlyIncome - totalGoalContributions - buffer, 0);
+  const allocatable = availableBudget > 0 ? Math.min(availableBudget, computedAllocatable) : computedAllocatable;
   
   // Generate suggestions (simulates optimization algorithm)
   const allocations: BudgetAllocation[] = [];
   const categories = Object.keys(categorySpending);
+  const globalMonthlyAverage =
+    categories.length > 0 ? monthlySpendingTotal / categories.length : 0;
   
   // Calculate proportional allocation based on historical spending
+  if (categories.length === 0 && Object.keys(trainedBudgetShares).length > 0) {
+    Object.entries(trainedBudgetShares).forEach(([category, share]) => {
+      const suggestedAmount = allocatable * share;
+      allocations.push({
+        category,
+        suggestedAmount: Math.round(suggestedAmount),
+        confidence: 0.55,
+        reasoning: `Based on trained budget shares for ${category}`,
+        minAmount: Math.round(suggestedAmount * 0.75),
+        maxAmount: Math.round(suggestedAmount * 1.4),
+      });
+    });
+  }
+
+  if (allocations.length === 0) {
+    // Fall back to history-based allocation when available
+    // Calculate proportional allocation based on historical spending
   categories.forEach((category) => {
     const historical = categorySpending[category];
-    const historicalMonthly = (historical.total / timeSpan) * 30;
-    const proportion = historicalMonthly / monthlySpendingTotal;
+    const historicalMonthly = (historical.total / timeSpanDays) * 30;
+    const smoothingFactor = clamp(1 - historical.count / 8, 0.2, 0.7);
+    const adjustedMonthly =
+      globalMonthlyAverage > 0
+        ? historicalMonthly * (1 - smoothingFactor) + globalMonthlyAverage * smoothingFactor
+        : historicalMonthly;
     
-    // Suggested amount based on historical + 10% buffer
-    const suggestedAmount = historicalMonthly * 1.1;
+    // Suggested amount based on adjusted monthly + conservative buffer
+    const bufferFactor = historical.count < 5 ? 1.05 : 1.1;
+    const suggestedAmount = adjustedMonthly * bufferFactor;
     
     // Confidence based on data quality
     const confidence = Math.min(
-      0.5 + (historical.count / 10) * 0.3 + (timeSpan / 90) * 0.2,
+      0.45 + (historical.count / 12) * 0.35 + (timeSpanDays / 90) * 0.2,
       0.95
-    );
+    ) * (1 - smoothingFactor * 0.3);
     
     // Reasoning
-    let reasoning = `Based on your historical spending of ${Math.round(historicalMonthly)} UGX/month`;
+    let reasoning = `Based on your historical spending of ${Math.round(adjustedMonthly)} UGX/month`;
     if (historical.count < 5) {
       reasoning += " (limited data, using estimates)";
     }
-    if (suggestedAmount > historicalMonthly * 1.2) {
+    if (suggestedAmount > adjustedMonthly * 1.2) {
       reasoning += ". Increased by 10% for safety buffer.";
     }
     
@@ -101,10 +132,11 @@ export function suggestBudgetAllocation(
       suggestedAmount: Math.round(suggestedAmount),
       confidence,
       reasoning,
-      minAmount: Math.round(historicalMonthly * 0.8),
-      maxAmount: Math.round(historicalMonthly * 1.5),
+      minAmount: Math.round(adjustedMonthly * 0.8),
+      maxAmount: Math.round(adjustedMonthly * 1.5),
     });
   });
+  }
   
   // Sort by suggested amount (descending)
   allocations.sort((a, b) => b.suggestedAmount - a.suggestedAmount);
@@ -113,7 +145,7 @@ export function suggestBudgetAllocation(
   const totalSuggested = allocations.reduce((sum, alloc) => sum + alloc.suggestedAmount, 0);
   
   // Scale if total exceeds available budget
-  if (totalSuggested > allocatable) {
+  if (allocatable > 0 && totalSuggested > allocatable) {
     const scaleFactor = allocatable / totalSuggested;
     allocations.forEach((alloc) => {
       alloc.suggestedAmount = Math.round(alloc.suggestedAmount * scaleFactor);
@@ -123,7 +155,8 @@ export function suggestBudgetAllocation(
   }
   
   // Risk assessment
-  const utilizationRate = totalSuggested / allocatable;
+  const adjustedTotal = allocations.reduce((sum, alloc) => sum + alloc.suggestedAmount, 0);
+  const utilizationRate = allocatable > 0 ? adjustedTotal / allocatable : 0;
   let riskAssessment: "low" | "medium" | "high" = "medium";
   if (utilizationRate > 0.95) {
     riskAssessment = "high";
@@ -131,11 +164,11 @@ export function suggestBudgetAllocation(
     riskAssessment = "low";
   }
   
-  const expectedSavings = allocatable - allocations.reduce((sum, alloc) => sum + alloc.suggestedAmount, 0);
+  const expectedSavings = allocatable - adjustedTotal;
   
   return {
     allocations,
-    totalSuggested: allocations.reduce((sum, alloc) => sum + alloc.suggestedAmount, 0),
+    totalSuggested: adjustedTotal,
     expectedSavings: Math.max(0, expectedSavings),
     riskAssessment,
   };
@@ -194,7 +227,12 @@ export function suggestNewPodAllocation(
     };
   }
   
-  const monthlySpending = (categoryTx.reduce((sum, tx) => sum + tx.amount, 0) / 30) * 30;
+  const dates = categoryTx.map((tx) => new Date(tx.date).getTime());
+  const timeSpan = dates.length > 0
+    ? (Math.max(...dates) - Math.min(...dates)) / (1000 * 60 * 60 * 24)
+    : 30;
+  const timeSpanDays = Math.max(timeSpan, 1);
+  const monthlySpending = (categoryTx.reduce((sum, tx) => sum + Math.abs(tx.amount), 0) / timeSpanDays) * 30;
   const suggested = monthlySpending * 1.15; // 15% buffer
   
   return {

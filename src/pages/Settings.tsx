@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useTheme } from "next-themes";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -11,8 +12,6 @@ import {
   CreditCard,
   Download,
   Trash2,
-  Moon,
-  Sun,
   Volume2,
   Mail,
   Smartphone,
@@ -28,11 +27,16 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { setUserEmail } from "@/lib/notifications";
+import { supabase } from "@/lib/supabase";
+import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 
 export default function Settings() {
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     toast({
       title: "Logged out",
       description: "You have been successfully logged out.",
@@ -54,15 +58,236 @@ export default function Settings() {
   const [preferences, setPreferences] = useState({
     currency: "UGX",
     dateFormat: "DD/MM/YYYY",
-    theme: "dark",
     language: "en",
   });
 
   const [profile, setProfile] = useState({
-    name: "John Doe",
-    email: "john.doe@example.com",
-    phone: "+91 98765 43210",
+    name: "",
+    email: "",
+    phone: "",
   });
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isSeeding, setIsSeeding] = useState(false);
+  const avatarInitials = useMemo(() => {
+    const base = profile.name || profile.email;
+    if (!base) return "U";
+    const parts = base.trim().split(" ").filter(Boolean);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  }, [profile.email, profile.name]);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadProfile = async () => {
+      const { data: userData, error } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (error || !userData.user) return;
+      const user = userData.user;
+      setUserId(user.id);
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("name,email,phone")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (!isActive) return;
+      setProfile({
+        name: profileData?.name ?? user.user_metadata?.name ?? "",
+        email: profileData?.email ?? user.email ?? "",
+        phone: profileData?.phone ?? "",
+      });
+      if (user.email) setUserEmail(user.email);
+    };
+    loadProfile();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const handleSaveProfile = async () => {
+    if (!userId) {
+      toast({
+        title: "Not signed in",
+        description: "Please sign in again to update your profile.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!profile.name.trim()) {
+      toast({
+        title: "Name required",
+        description: "Please enter your full name.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const normalizedEmail = normalizeEmail(profile.email);
+    if (!isValidEmail(normalizedEmail)) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid, working email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const { data: currentUserData } = await supabase.auth.getUser();
+    const currentEmail = currentUserData.user?.email ?? normalizedEmail;
+    if (normalizedEmail !== currentEmail) {
+      const { error: updateError } = await supabase.auth.updateUser({ email: normalizedEmail });
+      if (updateError) {
+        toast({
+          title: "Email update failed",
+          description: updateError.message,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    const { error: profileError } = await supabase.from("profiles").upsert(
+      {
+        id: userId,
+        name: profile.name.trim(),
+        email: normalizedEmail,
+        phone: profile.phone.trim() || null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+    if (profileError) {
+      toast({
+        title: "Profile update failed",
+        description: profileError.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setUserEmail(normalizedEmail);
+    toast({
+      title: "Profile updated",
+      description:
+        normalizedEmail !== currentEmail
+          ? "Check your inbox to confirm your new email address."
+          : "Your profile information has been saved successfully.",
+    });
+  };
+
+  const handleGenerateSampleData = async () => {
+    if (!userId) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to generate sample data.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!confirm("Generate sample data for the past 60 days? This will add new entries to your account.")) {
+      return;
+    }
+    setIsSeeding(true);
+    try {
+      const categories = [
+        "Food",
+        "Transport",
+        "Shopping",
+        "Health",
+        "Utilities",
+        "Rent",
+        "Education",
+        "Entertainment",
+        "Communication",
+        "Savings",
+      ];
+      const today = new Date();
+      const transactions = Array.from({ length: 45 }).map((_, index) => {
+        const daysAgo = Math.floor(Math.random() * 60);
+        const date = new Date(today);
+        date.setDate(today.getDate() - daysAgo);
+        const amount = Math.floor(2000 + Math.random() * 120000);
+        const category = categories[Math.floor(Math.random() * categories.length)];
+        const isIncome = index % 12 === 0;
+        return {
+          user_id: userId,
+          description: isIncome ? "Monthly income" : `Spent on ${category.toLowerCase()}`,
+          amount: isIncome ? 900000 + Math.floor(Math.random() * 600000) : amount,
+          type: isIncome ? "income" : "expense",
+          category: isIncome ? "Income" : category,
+          date: date.toISOString().split("T")[0],
+          time: date.toLocaleTimeString("en-UG", { hour: "2-digit", minute: "2-digit", hour12: false }),
+        };
+      });
+
+      const goals = [
+        {
+          user_id: userId,
+          name: "Emergency Fund",
+          target_amount: 2000000,
+          current_amount: 350000,
+          deadline: new Date(today.getFullYear(), today.getMonth() + 6, today.getDate()).toISOString().split("T")[0],
+          status: "on-track",
+          monthly_contribution: 120000,
+          linked_pods: [],
+        },
+        {
+          user_id: userId,
+          name: "Laptop Upgrade",
+          target_amount: 1500000,
+          current_amount: 200000,
+          deadline: new Date(today.getFullYear(), today.getMonth() + 4, today.getDate()).toISOString().split("T")[0],
+          status: "mild-pressure",
+          monthly_contribution: 100000,
+          linked_pods: [],
+        },
+      ];
+
+      const fluxPods = [
+        {
+          user_id: userId,
+          name: "Essentials",
+          allocated: 900000,
+          spent: 420000,
+          status: "healthy",
+          velocity: 22,
+          children: null,
+        },
+        {
+          user_id: userId,
+          name: "Lifestyle",
+          allocated: 450000,
+          spent: 300000,
+          status: "warning",
+          velocity: 12,
+          children: null,
+        },
+      ];
+
+      const [txResult, goalResult, podResult] = await Promise.all([
+        supabase.from("transactions").insert(transactions),
+        supabase.from("goals").insert(goals),
+        supabase.from("flux_pods").insert(fluxPods),
+      ]);
+
+      if (txResult.error || goalResult.error || podResult.error) {
+        throw new Error(
+          txResult.error?.message || goalResult.error?.message || podResult.error?.message || "Failed to seed data"
+        );
+      }
+
+      toast({
+        title: "Sample data added",
+        description: "Past 60 days of activity have been created for testing.",
+      });
+    } catch (error) {
+      toast({
+        title: "Seeding failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSeeding(false);
+    }
+  };
 
   return (
     <AppLayout>
@@ -100,7 +325,7 @@ export default function Settings() {
             <div className="glass-card rounded-xl p-6 space-y-6">
               <div className="flex items-center gap-4">
                 <div className="w-20 h-20 rounded-full bg-gradient-primary flex items-center justify-center text-2xl font-bold text-primary-foreground">
-                  JD
+                  {avatarInitials}
                 </div>
                 <div className="flex-1">
                   <h3 className="font-display text-lg font-semibold text-foreground mb-1">
@@ -161,12 +386,7 @@ export default function Settings() {
               <div className="flex justify-end">
                 <Button 
                   className="bg-gradient-primary hover:opacity-90"
-                  onClick={() => {
-                    toast({
-                      title: "Profile updated",
-                      description: "Your profile information has been saved successfully.",
-                    });
-                  }}
+                  onClick={handleSaveProfile}
                 >
                   Save Changes
                 </Button>
@@ -335,10 +555,8 @@ export default function Settings() {
                 <div>
                   <Label className="text-sm font-medium text-foreground mb-2 block">Theme</Label>
                   <Select
-                    value={preferences.theme}
-                    onValueChange={(value) =>
-                      setPreferences({ ...preferences, theme: value })
-                    }
+                    value={theme ?? "system"}
+                    onValueChange={(value) => setTheme(value)}
                   >
                     <SelectTrigger className="bg-muted/30 border-border">
                       <SelectValue />
@@ -513,12 +731,16 @@ export default function Settings() {
                     variant="outline" 
                     className="border-border hover:border-primary/50"
                     onClick={() => {
-                      const dataStr = JSON.stringify({ profile, preferences, notifications }, null, 2);
+                      const dataStr = JSON.stringify(
+                        { profile, preferences: { ...preferences, theme: theme ?? "system" }, notifications },
+                        null,
+                        2
+                      );
                       const dataBlob = new Blob([dataStr], { type: "application/json" });
                       const url = URL.createObjectURL(dataBlob);
                       const link = document.createElement("a");
                       link.href = url;
-                      link.download = `finnexus-data-${new Date().toISOString().split("T")[0]}.json`;
+                      link.download = `uniguard-wallet-data-${new Date().toISOString().split("T")[0]}.json`;
                       link.click();
                       URL.revokeObjectURL(url);
                       toast({
@@ -529,6 +751,23 @@ export default function Settings() {
                   >
                     <Download className="w-4 h-4 mr-2" />
                     Export
+                  </Button>
+                </div>
+
+                <div className="flex items-center justify-between p-4 glass-card rounded-lg">
+                  <div>
+                    <Label className="text-sm font-medium text-foreground">Generate Sample Data</Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Adds 60 days of sample transactions, goals, and pods for testing.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="border-border hover:border-primary/50"
+                    onClick={handleGenerateSampleData}
+                    disabled={isSeeding}
+                  >
+                    {isSeeding ? "Generating..." : "Generate"}
                   </Button>
                 </div>
 

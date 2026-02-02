@@ -136,7 +136,7 @@ const achievements: Achievement[] = [
   {
     id: "10",
     title: "Nexus Explorer",
-    description: "Use all features of FinNexus",
+    description: "Use all features of UniGuard Wallet",
     icon: Sparkles,
     category: "milestone",
     points: 90,
