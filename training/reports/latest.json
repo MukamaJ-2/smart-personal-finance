@@ -10,7 +10,8 @@
     "spending": [
       "ismetsemedov/personal-budget-transactions-dataset",
       "mohammedarfathr/budgetwise-personal-finance-dataset",
-      "cihannl/budgetwise-personal-finance-dataset"
+      "cihannl/budgetwise-personal-finance-dataset",
+      "thedevastator/analyzing-credit-card-spending-habits-in-india"
     ],
     "transactions": [
       "entrepreneurlife/personal-finance",
@@ -20,7 +21,7 @@
   },
   "datasets": {
     "spending_rows": 6814,
-    "transactions_rows": 2379
+    "transactions_rows": 2237
   },
   "filters": {
     "allowed_categories": [
@@ -50,19 +51,19 @@
     ],
     "english_like_ratio": 0.9,
     "max_amount": 5000000000.0,
-    "max_category_count": 500,
+    "max_category_count": 400,
     "min_amount": 1.0,
-    "min_category_count": 50,
+    "min_category_count": 55,
     "min_description_tokens": 1,
     "min_spending_category_count": 80,
     "min_spending_months": 6
   },
   "metrics": {
     "anomaly_detector": {
-      "alert_rate": 0.0567,
-      "precision": 0.5556,
+      "alert_rate": 0.0625,
+      "precision": 0.3929,
       "recall": 1.0,
-      "samples": 476
+      "samples": 448
     },
     "budget_allocator": {
       "rmse": 0.0371,
@@ -83,42 +84,43 @@
       "confusion_matrix": {
         "Communication": {
           "Communication": 15,
-          "Eating Out": 12
+          "Debt Payments": 12
         },
         "Debt Payments": {
-          "Debt Payments": 103
+          "Debt Payments": 96
         },
         "Eating Out": {
-          "Eating Out": 111
+          "Debt Payments": 2,
+          "Eating Out": 95
         },
         "Food": {
           "Food": 45
         },
         "Income": {
-          "Income": 28
+          "Income": 30
         },
         "Other": {
-          "Eating Out": 24,
-          "Other": 24
+          "Debt Payments": 24,
+          "Other": 12
         },
         "Shopping": {
-          "Eating Out": 3,
-          "Shopping": 45
+          "Debt Payments": 3,
+          "Shopping": 48
         },
         "Transport": {
-          "Eating Out": 21,
+          "Debt Payments": 21,
           "Transport": 9
         },
         "Utilities": {
-          "Eating Out": 24,
+          "Debt Payments": 24,
           "Utilities": 12
         }
       },
-      "macro_f1": 0.7608,
-      "samples": 476,
-      "top3_accuracy": 0.8992,
-      "weighted_f1": 0.7944
+      "macro_f1": 0.7326,
+      "samples": 448,
+      "top3_accuracy": 0.8393,
+      "weighted_f1": 0.781
     }
   },
-  "timestamp": "2026-02-02T19:21:54.343062+00:00"
+  "timestamp": "2026-02-03T21:28:40.540739+00:00"
 }

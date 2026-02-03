@@ -183,7 +183,6 @@ export function extractTransactionFeatures(tx: TrainingTransaction) {
   return {
     // Text features
     hasCoffee: /coffee|cafe|espresso|latte|starbucks|nero/i.test(text),
-    hasFood: /restaurant|dining|food|lunch|dinner|pizza|burger|mcdonald/i.test(text),
     hasShopping: /amazon|purchase|shopping|store|retail|buy|mall|order/i.test(text),
     hasTech: /netflix|software|app|laptop|tech|subscription|saas|cloud/i.test(text),
     hasTransport: /uber|taxi|ride|fuel|gas|transport|bus|train|metro/i.test(text),
@@ -192,8 +191,8 @@ export function extractTransactionFeatures(tx: TrainingTransaction) {
     hasTravel: /flight|airline|hotel|airbnb|booking|travel|trip/i.test(text),
     hasIncome: /salary|deposit|payroll|bonus|interest|dividend|refund|reversal|income|received|earned/i.test(text),
     hasUtilities: /utility|electric|electricity|power|water|gas|internet|cable|umeme/i.test(text),
-    hasFood: /food|groceries|supermarket|market|rice|beans|maize|shopping|kitchen|oil|sugar/i.test(text),
-    hasEatingOut: /restaurant|cafe|kfc|mcdonald|takeaway|takeout|snacks|fast\s?food/i.test(text),
+    hasFood: /food|groceries|supermarket|market|rice|beans|maize|kitchen|oil|sugar/i.test(text),
+    hasEatingOut: /restaurant|cafe|kfc|mcdonald|takeaway|takeout|snacks|fast\s?food|dining|lunch|dinner|pizza|burger/i.test(text),
     hasEducation: /school|fees|tuition|textbook|exam|course|stationery/i.test(text),
     hasCommunication: /airtime|data|bundle|mobile|sim|telecom|internet data/i.test(text),
     hasClothing: /clothing|clothes|shoe|shoes|jacket|uniform|fashion/i.test(text),

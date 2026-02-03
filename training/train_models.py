@@ -1,3 +1,5 @@
+import argparse
+import argparse
 import json
 import math
 import re
@@ -13,7 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = ROOT / "src" / "lib" / "ai" / "models" / "artifacts"
 REPORTS_DIR = ROOT / "training" / "reports"
 
-DATASET_PATHS = {
+DATASET_MANIFEST = ROOT / "training" / "data" / "datasets_manifest.json"
+
+DEFAULT_DATASET_PATHS = {
     # Curated clean sources for transaction categorization/spending series
     "entrepreneurlife/personal-finance": Path("/home/mukama/.cache/kagglehub/datasets/entrepreneurlife/personal-finance/versions/2"),
     "thedevastator/analyzing-credit-card-spending-habits-in-india": Path("/home/mukama/.cache/kagglehub/datasets/thedevastator/analyzing-credit-card-spending-habits-in-india/versions/3"),
@@ -28,6 +32,33 @@ DATASET_PATHS = {
     "shriyashjagtap/indian-personal-finance-and-spending-habits": Path("/home/mukama/.cache/kagglehub/datasets/shriyashjagtap/indian-personal-finance-and-spending-habits/versions/1"),
 }
 
+
+def load_dataset_manifest() -> Dict[str, str]:
+    if not DATASET_MANIFEST.exists():
+        return {}
+    try:
+        payload = json.loads(DATASET_MANIFEST.read_text())
+        if isinstance(payload, dict):
+            return {str(k): str(v) for k, v in payload.items()}
+    except json.JSONDecodeError:
+        return {}
+    return {}
+
+
+def resolve_dataset_paths() -> Dict[str, Path]:
+    manifest = load_dataset_manifest()
+    resolved = {}
+    for key, default_path in DEFAULT_DATASET_PATHS.items():
+        manifest_path = manifest.get(key)
+        if manifest_path:
+            resolved[key] = Path(manifest_path)
+        else:
+            resolved[key] = default_path
+    return resolved
+
+
+DATASET_PATHS = resolve_dataset_paths()
+
 TRANSACTION_SOURCES = [
     "entrepreneurlife/personal-finance",
     "bukolafatunde/personal-finance",
@@ -38,6 +69,7 @@ SPENDING_SOURCES = [
     "ismetsemedov/personal-budget-transactions-dataset",
     "mohammedarfathr/budgetwise-personal-finance-dataset",
     "cihannl/budgetwise-personal-finance-dataset",
+    "thedevastator/analyzing-credit-card-spending-habits-in-india",
 ]
 
 BUDGET_SOURCES = [
@@ -54,6 +86,7 @@ STOPWORDS = {
     "by", "of", "a", "an", "is", "it", "as", "or", "be", "are", "was", "were",
     "paid", "payment", "transfer", "transaction", "amount", "bill",
     "asdfgh", "xyz123", "misc", "test", "monthly",
+    "card", "bank", "debit", "credit", "refund", "adjustment",
 }
 
 CATEGORY_ALIASES = {
@@ -82,6 +115,10 @@ CATEGORY_ALIASES = {
     "coffee shops": "Eating Out",
     "alcohol & bars": "Eating Out",
     "restuarant": "Eating Out",
+    "restaurant": "Eating Out",
+    "dining": "Eating Out",
+    "coffee": "Coffee",
+    "cafe": "Coffee",
     "transport": "Transport",
     "gas & fuel": "Transport",
     "fuel": "Transport",
@@ -121,7 +158,10 @@ CATEGORY_ALIASES = {
     "other": "Miscellaneous",
     "others": "Miscellaneous",
     "misc": "Miscellaneous",
-    "bills": "Miscellaneous",
+    "bills": "Utilities",
+    "merchandise": "Shopping",
+    "wire transfer": "Income",
+    "grocery": "Food",
     "movies & dvds": "Entertainment",
     "mortgage & rent": "Rent",
     "entertain": "Entertainment",
@@ -160,8 +200,8 @@ MIN_AMOUNT = 1.0
 MAX_AMOUNT = 5_000_000_000.0
 MIN_DESC_TOKENS = 1
 RANDOM_SEED = 42
-MIN_CATEGORY_COUNT = 50
-MAX_CATEGORY_COUNT = 500
+MIN_CATEGORY_COUNT = 55
+MAX_CATEGORY_COUNT = 400
 MIN_SPENDING_CATEGORY_COUNT = 80
 MIN_SPENDING_MONTHS = 6
 GENERIC_TOKENS = {
@@ -177,6 +217,10 @@ GENERIC_TOKENS = {
     "purchase",
     "purchased",
     "payment",
+    "pay",
+    "monthly",
+    "recurring",
+    "auto",
 }
 
 ANOMALY_THRESHOLD_SCALE = 1.0
@@ -218,13 +262,21 @@ STRONG_TOKENS = {
     "gym",
     "netflix",
     "spotify",
+    "repayment",
+    "debt",
+    "utilities",
+    "fuel",
+    "shell",
+    "starbucks",
+    "brewing",
+    "tavern",
 }
 
 
 def normalize_description(raw: str) -> str:
     if not raw:
         return ""
-    text = re.sub(r"\\s+", " ", str(raw)).strip()
+    text = re.sub(r"\s+", " ", str(raw)).strip()
     return text
 
 
@@ -289,7 +341,7 @@ def build_token_weights(
         for token, count in tokens.items():
             if count < min_count or token in GENERIC_TOKENS:
                 continue
-            if token_df.get(token, 0) >= 4 and token not in STRONG_TOKENS:
+            if token_df.get(token, 0) >= 3 and token not in STRONG_TOKENS:
                 continue
             tf = count / category_totals[category]
             df = token_df.get(token, 1)
@@ -300,7 +352,7 @@ def build_token_weights(
     return weights
 
 
-def select_top_tokens(token_weights: Dict[str, Dict[str, float]], top_n: int = 15) -> Dict[str, List[str]]:
+def select_top_tokens(token_weights: Dict[str, Dict[str, float]], top_n: int = 25) -> Dict[str, List[str]]:
     keywords: Dict[str, List[str]] = {}
     for category, weights in token_weights.items():
         sorted_tokens = sorted(weights.items(), key=lambda item: item[1], reverse=True)
@@ -313,7 +365,7 @@ def normalize_category(raw: str) -> str:
         return "Miscellaneous"
     key = re.sub(r"[^a-z0-9\s_&/-]", "", str(raw).lower()).strip()
     key = key.replace("_", " ").replace("-", " ")
-    key = re.sub(r"\\s+", " ", key)
+    key = re.sub(r"\s+", " ", key)
     if key in CATEGORY_ALIASES:
         return CATEGORY_ALIASES[key]
     for alias, target in CATEGORY_ALIASES.items():
@@ -324,7 +376,7 @@ def normalize_category(raw: str) -> str:
 
 def tokenize(text: str) -> List[str]:
     text = text.lower()
-    text = re.sub(r"[^a-z0-9\\s]", " ", text)
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
     tokens = [
         t
         for t in text.split()
@@ -344,7 +396,7 @@ def safe_read_csv(path: Path) -> Optional[pd.DataFrame]:
         return pd.read_csv(path)
     except Exception:
         try:
-            return pd.read_csv(path, sep="\\t")
+            return pd.read_csv(path, sep="\t")
         except Exception:
             return None
 
@@ -487,35 +539,29 @@ def build_transaction_dataset() -> pd.DataFrame:
         if df is None:
             continue
         mapping = source["map"]
+        required = ["date", "description", "amount", "category"]
         cols = {key: mapping.get(key) for key in ["date", "description", "amount", "category", "type"] if mapping.get(key) in df.columns}
-        if "amount" not in cols or "category" not in cols:
+        if not all(c in cols for c in required):
             continue
         subset = df[[cols[c] for c in cols]].rename(columns={v: k for k, v in cols.items()})
         subset = subset.loc[:, ~subset.columns.duplicated()]
-        if "description" in subset.columns:
-            subset["description"] = subset["description"].fillna("").astype(str).map(normalize_description)
-        else:
-            subset["description"] = ""
-        if "category" in subset.columns:
-            subset["category"] = subset["category"].fillna("Miscellaneous").astype(str)
-        else:
-            subset["category"] = "Miscellaneous"
+        # Normalize: no coercing missing to defaults — reject invalid rows
+        subset["description"] = subset["description"].astype(str).map(normalize_description)
+        subset["category"] = subset["category"].astype(str).str.strip()
+        subset = subset.loc[subset["category"].str.len() > 0]
         subset["category"] = subset["category"].apply(normalize_category)
-        subset["amount"] = pd.to_numeric(subset["amount"], errors="coerce").fillna(0)
+        subset["amount"] = pd.to_numeric(subset["amount"], errors="coerce")
+        subset["date"] = pd.to_datetime(subset["date"], errors="coerce")
         if "type" in subset.columns:
             subset["type"] = subset["type"].fillna("expense").astype(str)
         else:
             subset["type"] = "expense"
-        subset["date"] = pd.to_datetime(subset.get("date", pd.NaT), errors="coerce")
-        subset = subset.dropna(subset=["date"])
+        # Reject rows that fail required schema (do not coerce)
+        subset = subset.dropna(subset=["date", "amount"])
         subset = subset.loc[subset["amount"].abs().map(is_valid_amount)]
         subset = subset.loc[subset["category"].isin(ALLOWED_CATEGORIES)]
         subset = subset.loc[subset["description"].map(is_english_like)]
-        desc_tokens = subset["description"].str.split().map(len)
-        short_desc_mask = desc_tokens < MIN_DESC_TOKENS
-        if short_desc_mask.any():
-            subset.loc[short_desc_mask, "description"] = subset.loc[short_desc_mask, "category"]
-        subset = subset.loc[subset["description"].str.split().map(len) >= MIN_DESC_TOKENS]
+        subset = subset.loc[subset["description"].str.split().str.len() >= MIN_DESC_TOKENS]
         records.append(subset)
 
     if not records:
@@ -538,7 +584,7 @@ def train_transaction_categorizer(df: pd.DataFrame) -> str:
     df["category"] = df["category"].str.strip().str.title()
     df["tokens"] = df["description"].fillna("").astype(str).apply(tokenize)
     category_counts = df["category"].value_counts().to_dict()
-    valid_categories = {cat for cat, count in category_counts.items() if count >= 20}
+    valid_categories = {cat for cat, count in category_counts.items() if count >= 25}
     total = sum(category_counts.values())
     priors = {cat: count / total for cat, count in category_counts.items() if cat in valid_categories}
 
@@ -557,8 +603,8 @@ def train_transaction_categorizer(df: pd.DataFrame) -> str:
 
     keywords = {}
     weights = {}
-    token_weights = build_token_weights(token_counts, min_count=2, top_n=60)
-    keywords = select_top_tokens(token_weights, top_n=15)
+    token_weights = build_token_weights(token_counts, min_count=2, top_n=80)
+    keywords = select_top_tokens(token_weights, top_n=25)
 
     for category, tokens in token_counts.items():
 
@@ -599,7 +645,7 @@ def build_categorizer_model(
     df["category"] = df["category"].str.strip().str.title()
     df["tokens"] = df["description"].fillna("").astype(str).apply(tokenize)
     category_counts = df["category"].value_counts().to_dict()
-    valid_categories = {cat for cat, count in category_counts.items() if count >= 10}
+    valid_categories = {cat for cat, count in category_counts.items() if count >= 25}
     total = sum(category_counts.values())
     priors = {cat: count / total for cat, count in category_counts.items() if cat in valid_categories}
 
@@ -618,8 +664,8 @@ def build_categorizer_model(
 
     keywords = {}
     weights = {}
-    token_weights = build_token_weights(token_counts, min_count=2, top_n=60)
-    keywords = select_top_tokens(token_weights, top_n=15)
+    token_weights = build_token_weights(token_counts, min_count=2, top_n=80)
+    keywords = select_top_tokens(token_weights, top_n=25)
 
     for category, tokens in token_counts.items():
 
@@ -729,6 +775,10 @@ def build_spending_dataset() -> pd.DataFrame:
             "path": DATASET_PATHS["cihannl/budgetwise-personal-finance-dataset"] / "budgetwise_finance_dataset.csv",
             "map": {"date": "date", "category": "category", "amount": "amount"},
         },
+        {
+            "path": DATASET_PATHS["thedevastator/analyzing-credit-card-spending-habits-in-india"] / "Credit card transactions - India - Simple.csv",
+            "map": {"date": "Date", "category": "Exp Type", "amount": "Amount"},
+        },
     ]
 
     for source in sources:
@@ -742,9 +792,12 @@ def build_spending_dataset() -> pd.DataFrame:
             columns={mapping["date"]: "date", mapping["category"]: "category", mapping["amount"]: "amount"}
         )
         subset["date"] = pd.to_datetime(subset["date"], errors="coerce")
-        subset["amount"] = pd.to_numeric(subset["amount"], errors="coerce").fillna(0)
-        subset["category"] = subset["category"].fillna("Miscellaneous").astype(str).apply(normalize_category)
-        subset = subset.dropna(subset=["date"])
+        subset["amount"] = pd.to_numeric(subset["amount"], errors="coerce")
+        subset["category"] = subset["category"].astype(str).str.strip()
+        subset = subset.loc[subset["category"].str.len() > 0]
+        subset["category"] = subset["category"].apply(normalize_category)
+        # Reject rows that fail required schema (do not coerce)
+        subset = subset.dropna(subset=["date", "amount"])
         subset = subset.loc[subset["amount"].abs().map(is_valid_amount)]
         subset = subset.loc[subset["category"].isin(ALLOWED_CATEGORIES)]
         records.append(subset)
@@ -848,7 +901,7 @@ def train_goal_predictor() -> str:
     habits["income_bracket"] = pd.cut(habits["Income"], bins=bins, labels=labels, include_lowest=True)
 
     rates = {}
-    for bracket, group in habits.groupby("income_bracket"):
+    for bracket, group in habits.groupby("income_bracket", observed=True):
         if group.empty:
             continue
         rates[str(bracket)] = round(float(group["Desired_Savings_Percentage"].mean()) / 100.0, 4)
@@ -886,6 +939,119 @@ def train_anomaly_detector(df: pd.DataFrame) -> str:
         }
 
     return "export const trainedCategoryStats = " + repr(stats) + " as const;\n"
+
+
+def export_clean_datasets(model: str, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if model in ("transaction_categorizer", "anomaly_detector"):
+        transactions = build_transaction_dataset()
+        if not transactions.empty:
+            transactions.to_csv(output_dir / "transactions_clean.csv", index=False)
+        return
+    if model == "spending_forecaster":
+        spending = build_spending_dataset()
+        if not spending.empty:
+            spending.to_csv(output_dir / "spending_clean.csv", index=False)
+        return
+    if model == "budget_allocator":
+        rows = build_budget_share_rows()
+        if rows:
+            pd.DataFrame(rows).to_csv(output_dir / "budget_shares_clean.csv", index=False)
+        return
+    if model == "goal_predictor":
+        habits_path = DATASET_PATHS["shriyashjagtap/indian-personal-finance-and-spending-habits"] / "data.csv"
+        habits = safe_read_csv(habits_path)
+        if habits is not None and not habits.empty:
+            subset = habits[["Income", "Desired_Savings_Percentage"]].copy()
+            subset["Income"] = pd.to_numeric(subset["Income"], errors="coerce")
+            subset["Desired_Savings_Percentage"] = pd.to_numeric(
+                subset["Desired_Savings_Percentage"], errors="coerce"
+            )
+            subset = subset.dropna()
+            if not subset.empty:
+                subset.to_csv(output_dir / "goal_savings_clean.csv", index=False)
+        return
+
+
+def run_training(model: str) -> None:
+    if model in ("transaction_categorizer", "anomaly_detector", "all"):
+        transactions = build_transaction_dataset()
+    else:
+        transactions = pd.DataFrame()
+
+    if model in ("spending_forecaster", "all"):
+        spending = build_spending_dataset()
+    else:
+        spending = pd.DataFrame()
+
+    if model in ("transaction_categorizer", "all"):
+        categorizer_content = train_transaction_categorizer(transactions)
+        write_ts_module(ARTIFACTS_DIR / "transaction-categorizer.ts", categorizer_content)
+
+    if model in ("spending_forecaster", "all"):
+        forecaster_content = train_spending_forecaster(spending)
+        write_ts_module(ARTIFACTS_DIR / "spending-forecaster.ts", forecaster_content)
+
+    if model in ("budget_allocator", "all"):
+        allocator_content = train_budget_allocator()
+        write_ts_module(ARTIFACTS_DIR / "budget-allocator.ts", allocator_content)
+
+    if model in ("goal_predictor", "all"):
+        goal_content = train_goal_predictor()
+        write_ts_module(ARTIFACTS_DIR / "goal-predictor.ts", goal_content)
+
+    if model in ("anomaly_detector", "all"):
+        anomaly_content = train_anomaly_detector(transactions)
+        write_ts_module(ARTIFACTS_DIR / "anomaly-detector.ts", anomaly_content)
+
+    if model == "all":
+        write_training_metadata()
+
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "dataset_sources": {
+                "transactions": TRANSACTION_SOURCES,
+                "spending": SPENDING_SOURCES,
+                "budget_allocator": BUDGET_SOURCES,
+                "goal_predictor": GOAL_SOURCES,
+            },
+            "filters": {
+                "allowed_categories": sorted(ALLOWED_CATEGORIES),
+                "min_amount": MIN_AMOUNT,
+                "max_amount": MAX_AMOUNT,
+                "min_description_tokens": MIN_DESC_TOKENS,
+                "english_like_ratio": 0.9,
+                "min_category_count": MIN_CATEGORY_COUNT,
+                "max_category_count": MAX_CATEGORY_COUNT,
+                "min_spending_category_count": MIN_SPENDING_CATEGORY_COUNT,
+                "min_spending_months": MIN_SPENDING_MONTHS,
+            },
+            "datasets": {
+                "transactions_rows": int(len(transactions)),
+                "spending_rows": int(len(spending)),
+            },
+            "metrics": {
+                "transaction_categorizer": evaluate_transaction_categorizer(transactions),
+                "spending_forecaster": evaluate_spending_forecaster(spending),
+                "budget_allocator": evaluate_budget_allocator(),
+                "goal_predictor": evaluate_goal_predictor(),
+                "anomaly_detector": evaluate_anomaly_detector(transactions),
+            },
+        }
+        write_json(REPORTS_DIR / "latest.json", report)
+        print("Report written to:", REPORTS_DIR / "latest.json")
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "report_visuals", REPORTS_DIR.parent / "report_visuals.py"
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            mod.main()
+        except Exception as e:
+            print("Visual report skipped:", e)
+
+    print("Artifacts written to:", ARTIFACTS_DIR)
 
 
 def evaluate_transaction_categorizer(df: pd.DataFrame) -> Dict:
@@ -1044,7 +1210,7 @@ def evaluate_goal_predictor() -> Dict:
     habits["income_bracket"] = pd.cut(habits["Income"], bins=bins, labels=labels, include_lowest=True)
     train_df, test_df = random_split(habits, test_frac=0.2, seed=42)
     rates = {}
-    for bracket, group in train_df.groupby("income_bracket"):
+    for bracket, group in train_df.groupby("income_bracket", observed=True):
         if group.empty:
             continue
         rates[str(bracket)] = float(group["Desired_Savings_Percentage"].mean()) / 100.0
@@ -1123,64 +1289,37 @@ def evaluate_anomaly_detector(df: pd.DataFrame) -> Dict:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Train UniGuard AI models.")
+    parser.add_argument(
+        "--model",
+        default="all",
+        choices=[
+            "all",
+            "transaction_categorizer",
+            "spending_forecaster",
+            "budget_allocator",
+            "goal_predictor",
+            "anomaly_detector",
+        ],
+        help="Model to train.",
+    )
+    parser.add_argument(
+        "--export-clean",
+        action="store_true",
+        help="Export cleaned datasets for the selected model.",
+    )
+    args = parser.parse_args()
+
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    transactions = build_transaction_dataset()
-    spending = build_spending_dataset()
+    if args.export_clean:
+        export_dir = ROOT / "training" / "models" / args.model / "cleaned"
+        export_clean_datasets(args.model, export_dir)
+        print("Cleaned data written to:", export_dir)
+        return
 
-    categorizer_content = train_transaction_categorizer(transactions)
-    write_ts_module(ARTIFACTS_DIR / "transaction-categorizer.ts", categorizer_content)
-
-    forecaster_content = train_spending_forecaster(spending)
-    write_ts_module(ARTIFACTS_DIR / "spending-forecaster.ts", forecaster_content)
-
-    allocator_content = train_budget_allocator()
-    write_ts_module(ARTIFACTS_DIR / "budget-allocator.ts", allocator_content)
-
-    goal_content = train_goal_predictor()
-    write_ts_module(ARTIFACTS_DIR / "goal-predictor.ts", goal_content)
-
-    anomaly_content = train_anomaly_detector(transactions)
-    write_ts_module(ARTIFACTS_DIR / "anomaly-detector.ts", anomaly_content)
-
-    write_training_metadata()
-
-    report = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "dataset_sources": {
-            "transactions": TRANSACTION_SOURCES,
-            "spending": SPENDING_SOURCES,
-            "budget_allocator": BUDGET_SOURCES,
-            "goal_predictor": GOAL_SOURCES,
-        },
-        "filters": {
-            "allowed_categories": sorted(ALLOWED_CATEGORIES),
-            "min_amount": MIN_AMOUNT,
-            "max_amount": MAX_AMOUNT,
-            "min_description_tokens": MIN_DESC_TOKENS,
-            "english_like_ratio": 0.9,
-            "min_category_count": MIN_CATEGORY_COUNT,
-            "max_category_count": MAX_CATEGORY_COUNT,
-            "min_spending_category_count": MIN_SPENDING_CATEGORY_COUNT,
-            "min_spending_months": MIN_SPENDING_MONTHS,
-        },
-        "datasets": {
-            "transactions_rows": int(len(transactions)),
-            "spending_rows": int(len(spending)),
-        },
-        "metrics": {
-            "transaction_categorizer": evaluate_transaction_categorizer(transactions),
-            "spending_forecaster": evaluate_spending_forecaster(spending),
-            "budget_allocator": evaluate_budget_allocator(),
-            "goal_predictor": evaluate_goal_predictor(),
-            "anomaly_detector": evaluate_anomaly_detector(transactions),
-        },
-    }
-    write_json(REPORTS_DIR / "latest.json", report)
-
-    print("Artifacts written to:", ARTIFACTS_DIR)
-    print("Report written to:", REPORTS_DIR / "latest.json")
+    run_training(args.model)
 
 
 if __name__ == "__main__":

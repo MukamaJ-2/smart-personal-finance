@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Zap,
@@ -96,10 +96,12 @@ function ReallocateDialog({
   allPods, 
   open, 
   onOpenChange, 
-  onReallocate 
+  onReallocate,
+  effectiveSpent,
 }: { 
   pod: FluxPod; 
   allPods: FluxPod[];
+  effectiveSpent?: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onReallocate: (fromPodId: string, toPodId: string, amount: number) => void;
@@ -107,13 +109,15 @@ function ReallocateDialog({
   const [targetPodId, setTargetPodId] = useState("");
   const [amount, setAmount] = useState("");
   const availablePods = allPods.filter((p) => p.id !== pod.id);
+  const spent = effectiveSpent ?? pod.spent;
+  const available = pod.allocated - spent;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetPodId || !amount) return;
 
     const reallocateAmount = parseFloat(amount) || 0;
-    if (reallocateAmount <= 0 || reallocateAmount > (pod.allocated - pod.spent)) {
+    if (reallocateAmount <= 0 || reallocateAmount > available) {
       toast({
         title: "Invalid amount",
         description: "Amount must be greater than 0 and not exceed available balance.",
@@ -151,7 +155,7 @@ function ReallocateDialog({
               <option value="">Select a pod...</option>
               {availablePods.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} (Available: {formatCurrency(p.allocated - p.spent)})
+                  {p.name} (Available: {formatCurrency(p.allocated - (p.id === pod.id ? spent : p.spent))})
                 </option>
               ))}
             </select>
@@ -163,14 +167,14 @@ function ReallocateDialog({
               type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder={`Max: ${formatCurrency(pod.allocated - pod.spent)}`}
+              placeholder={`Max: ${formatCurrency(available)}`}
               className="bg-muted/30 border-border mt-1"
               required
               min="0"
-              max={pod.allocated - pod.spent}
+              max={available}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Available: {formatCurrency(pod.allocated - pod.spent)}
+              Available: {formatCurrency(available)}
             </p>
           </div>
           <div className="flex justify-end gap-2">
@@ -189,24 +193,27 @@ function ReallocateDialog({
 
 function ConfigureDialog({
   pod,
+  effectiveSpent,
   open,
   onOpenChange,
   onUpdate,
 }: {
   pod: FluxPod;
+  effectiveSpent?: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUpdate: (podId: string, updates: Partial<FluxPod>) => void;
 }) {
   const [name, setName] = useState(pod.name);
   const [allocated, setAllocated] = useState(pod.allocated.toString());
+  const spent = effectiveSpent ?? pod.spent;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !allocated) return;
 
     const newAllocated = parseFloat(allocated) || 0;
-    if (newAllocated < pod.spent) {
+    if (newAllocated < spent) {
       toast({
         title: "Invalid budget",
         description: "Budget cannot be less than amount already spent.",
@@ -252,10 +259,10 @@ function ConfigureDialog({
               onChange={(e) => setAllocated(e.target.value)}
               className="bg-muted/30 border-border mt-1"
               required
-              min={pod.spent}
+              min={spent}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Current spent: {formatCurrency(pod.spent)}
+              Current spent: {formatCurrency(spent)}
             </p>
           </div>
           <div className="flex justify-end gap-2">
@@ -276,12 +283,16 @@ function PodCard({
   pod, 
   index, 
   allPods,
+  effectiveSpent,
+  daysLeftFromForecast,
   onUpdate,
   onReallocate 
 }: { 
   pod: FluxPod; 
   index: number;
   allPods: FluxPod[];
+  effectiveSpent?: number;
+  daysLeftFromForecast?: number;
   onUpdate: (podId: string, updates: Partial<FluxPod>) => void;
   onReallocate: (fromPodId: string, toPodId: string, amount: number) => void;
 }) {
@@ -289,8 +300,11 @@ function PodCard({
   const [showReallocate, setShowReallocate] = useState(false);
   const [showConfigure, setShowConfigure] = useState(false);
   const config = statusConfig[pod.status];
-  const percentage = (pod.spent / pod.allocated) * 100;
-  const remaining = pod.allocated - pod.spent;
+  const spent = effectiveSpent ?? pod.spent;
+  const safeAllocated = pod.allocated > 0 ? pod.allocated : 1;
+  const percentage = (spent / safeAllocated) * 100;
+  const remaining = pod.allocated - spent;
+  const daysLeft = daysLeftFromForecast ?? pod.velocity;
 
   return (
     <motion.div
@@ -352,7 +366,7 @@ function PodCard({
         <div className="flex items-center justify-between mt-3 text-sm">
           <div className="flex items-center gap-4">
             <span className="text-muted-foreground">
-              <span className="font-mono text-foreground">{formatCurrency(pod.spent)}</span> spent
+              <span className="font-mono text-foreground">{formatCurrency(spent)}</span> spent
             </span>
             <span className="text-muted-foreground">
               of <span className="font-mono text-foreground">{formatCurrency(pod.allocated)}</span>
@@ -361,7 +375,7 @@ function PodCard({
           <div className="flex items-center gap-2">
             <TrendingDown className={cn("w-4 h-4", config.color)} />
             <span className={cn("font-mono text-sm", config.color)}>
-              {pod.velocity}d left
+              {Math.round(daysLeft)}d left
             </span>
             <Badge variant="outline" className="text-xs px-1.5 py-0 border-primary/30 text-primary">
               <Sparkles className="w-3 h-3 mr-1" />
@@ -448,12 +462,14 @@ function PodCard({
       <ReallocateDialog
         pod={pod}
         allPods={allPods}
+        effectiveSpent={effectiveSpent}
         open={showReallocate}
         onOpenChange={setShowReallocate}
         onReallocate={onReallocate}
       />
       <ConfigureDialog
         pod={pod}
+        effectiveSpent={effectiveSpent}
         open={showConfigure}
         onOpenChange={setShowConfigure}
         onUpdate={onUpdate}
@@ -593,12 +609,34 @@ function NewPodDialog({
   );
 }
 
+function normalizeCategoryForMatch(name: string): string {
+  return name.toLowerCase().trim().replace(/\s+/g, " ");
+}
+
 export default function FluxPods() {
   const [fluxPods, setFluxPods] = useState<FluxPod[]>([]);
+  const [transactions, setTransactions] = useState<TrainingTransaction[]>([]);
   const [forecasts, setForecasts] = useState<Record<string, { daysLeft: number; trend: string }>>({});
   const [monthlyIncome, setMonthlyIncome] = useState(0);
   const [userId, setUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const effectiveSpentByPodId = useMemo(() => {
+    const out: Record<string, number> = {};
+    const categoryTotals: Record<string, number> = {};
+    transactions
+      .filter((tx) => tx.type === "expense")
+      .forEach((tx) => {
+        const key = normalizeCategoryForMatch(tx.category);
+        categoryTotals[key] = (categoryTotals[key] ?? 0) + tx.amount;
+      });
+    fluxPods.forEach((pod) => {
+      const key = normalizeCategoryForMatch(pod.name);
+      const fromTx = categoryTotals[key] ?? 0;
+      out[pod.id] = pod.spent + fromTx;
+    });
+    return out;
+  }, [fluxPods, transactions]);
 
   useEffect(() => {
     let isActive = true;
@@ -640,9 +678,11 @@ export default function FluxPods() {
       if (txError) {
         console.error("Failed to load transactions for flux pods", txError);
         setMonthlyIncome(0);
+        setTransactions([]);
         aiService.initialize([], 0);
       } else {
         const trainingData = (transactionData ?? []) as TrainingTransaction[];
+        setTransactions(trainingData);
         const incomeTotal = trainingData
           .filter((tx) => tx.type === "income")
           .reduce((sum, tx) => sum + tx.amount, 0);
@@ -685,19 +725,49 @@ export default function FluxPods() {
     };
   }, [userId]);
 
-  // Initialize AI service
+  // Re-fetch transactions when they change so effectiveSpent (and budget deduction) stays in sync
   useEffect(() => {
-    // Generate forecasts for each pod
+    if (!userId || !isSupabaseConfigured) return;
+    const channel = supabase
+      .channel("flux-pods-transactions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `user_id=eq.${userId}` },
+        () => {
+          supabase
+            .from("transactions")
+            .select("description,amount,category,type,date")
+            .eq("user_id", userId)
+            .then(({ data, error }) => {
+              if (!error && data) {
+                setTransactions(data as TrainingTransaction[]);
+                const incomeTotal = (data as TrainingTransaction[])
+                  .filter((tx) => tx.type === "income")
+                  .reduce((sum, tx) => sum + tx.amount, 0);
+                aiService.initialize(data as TrainingTransaction[], incomeTotal);
+              }
+            });
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  // Generate forecasts for each pod using effective spent (DB spent + transactions by category)
+  useEffect(() => {
     const forecastMap: Record<string, { daysLeft: number; trend: string }> = {};
     fluxPods.forEach((pod) => {
-      const forecast = aiService.forecastSpending(pod.name, pod.allocated, pod.spent, 30);
+      const spent = effectiveSpentByPodId[pod.id] ?? pod.spent;
+      const forecast = aiService.forecastSpending(pod.name, pod.allocated, spent, 30);
       forecastMap[pod.id] = {
         daysLeft: forecast.daysUntilDepletion,
         trend: forecast.trend,
       };
     });
     setForecasts(forecastMap);
-  }, [fluxPods]);
+  }, [fluxPods, effectiveSpentByPodId]);
 
   const handleAddPod = async (pod: FluxPod) => {
     if (!userId) {
@@ -829,7 +899,10 @@ export default function FluxPods() {
   };
 
   const totalAllocated = fluxPods.reduce((sum, pod) => sum + pod.allocated, 0);
-  const totalSpent = fluxPods.reduce((sum, pod) => sum + pod.spent, 0);
+  const totalSpent = fluxPods.reduce(
+    (sum, pod) => sum + (effectiveSpentByPodId[pod.id] ?? pod.spent),
+    0
+  );
   const healthyCount = fluxPods.filter((p) => p.status === "healthy").length;
   const warningCount = fluxPods.filter((p) => p.status === "warning").length;
   const criticalCount = fluxPods.filter((p) => p.status === "critical").length;
@@ -903,6 +976,8 @@ export default function FluxPods() {
               pod={pod} 
               index={index}
               allPods={fluxPods}
+              effectiveSpent={effectiveSpentByPodId[pod.id]}
+              daysLeftFromForecast={forecasts[pod.id]?.daysLeft}
               onUpdate={handleUpdatePod}
               onReallocate={handleReallocate}
             />

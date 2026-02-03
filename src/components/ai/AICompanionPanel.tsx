@@ -58,9 +58,12 @@ export default function AICompanionPanel() {
     setInput("");
     setIsTyping(true);
 
-    // AI response from local models (simulated data)
+    const lastUserMessage = (() => {
+      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      return lastUser?.content;
+    })();
     setTimeout(() => {
-      const aiResponse = buildAiResponse(userMessage.content);
+      const aiResponse = buildAiResponse(userMessage.content, { lastUserMessage });
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",

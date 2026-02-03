@@ -5,7 +5,10 @@ import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { buildAiResponse } from "@/lib/ai/companion";
+import { buildAiResponse, type CompanionGoal } from "@/lib/ai/companion";
+import { aiService } from "@/lib/ai/ai-service";
+import type { TrainingTransaction } from "@/lib/ai/training-data";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 interface Message {
   id: string;
@@ -24,6 +27,15 @@ const quickActions = [
 
 const COMPANION_STORAGE_KEY = "uniguard.companion.messages";
 
+interface GoalRow {
+  id: string;
+  name: string;
+  target_amount: number;
+  current_amount: number;
+  deadline: string;
+  monthly_contribution: number;
+}
+
 export default function Companion() {
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === "undefined") return [];
@@ -39,6 +51,56 @@ export default function Companion() {
   });
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [goals, setGoals] = useState<CompanionGoal[]>([]);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadData = async () => {
+      if (!isSupabaseConfigured) {
+        aiService.initialize([], 0);
+        return;
+      }
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!isActive) return;
+      if (userError || !userData.user) {
+        aiService.initialize([], 0);
+        return;
+      }
+      const { data: txData, error: txError } = await supabase
+        .from("transactions")
+        .select("description,amount,category,type,date")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      const transactions: TrainingTransaction[] = txError ? [] : ((txData ?? []) as TrainingTransaction[]);
+      const incomeTotal = transactions
+        .filter((tx) => tx.type === "income")
+        .reduce((sum, tx) => sum + tx.amount, 0);
+      aiService.initialize(transactions, incomeTotal);
+
+      const { data: goalData, error: goalError } = await supabase
+        .from("goals")
+        .select("id,name,target_amount,current_amount,deadline,monthly_contribution")
+        .eq("user_id", userData.user.id);
+      if (!isActive) return;
+      if (!goalError && goalData?.length) {
+        setGoals(
+          (goalData as GoalRow[]).map((row) => ({
+            name: row.name,
+            targetAmount: row.target_amount,
+            currentAmount: row.current_amount,
+            monthlyContribution: row.monthly_contribution,
+            deadline: row.deadline,
+          }))
+        );
+      } else {
+        setGoals([]);
+      }
+    };
+    loadData();
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -100,9 +162,16 @@ export default function Companion() {
     setInput("");
     setIsTyping(true);
 
-    // AI response from local models (simulated data)
+    const lastUserMessage = (() => {
+      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      return lastUser?.content;
+    })();
+
     setTimeout(() => {
-      const aiResponse = buildAiResponse(userMessage.content);
+      const aiResponse = buildAiResponse(userMessage.content, {
+        goals: goals.length > 0 ? goals : undefined,
+        lastUserMessage,
+      });
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),

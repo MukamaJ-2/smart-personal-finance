@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Lightbulb,
   Calculator,
+  PiggyBank,
 } from "lucide-react";
 import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -188,6 +189,65 @@ function analyzeSpendingPatterns(goal: Goal, transactions: TrainingTransaction[]
   return categories.sort((a, b) => b.daysSaved - a.daysSaved);
 }
 
+function AddContributionDialog({
+  goal,
+  onSave,
+}: {
+  goal: Goal;
+  onSave: (newCurrentAmount: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const value = parseFloat(amount.replace(/,/g, "")) || 0;
+    if (value < 0) return;
+    onSave(goal.currentAmount + value);
+    setAmount("");
+    setOpen(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="flex-1 text-muted-foreground hover:text-foreground">
+          <PiggyBank className="w-4 h-4 mr-1" />
+          Add contribution
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="glass-card border-border max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Update progress: {goal.name}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Current: {formatCurrency(goal.currentAmount)} / {formatCurrency(goal.targetAmount)}
+          </p>
+          <div>
+            <Label htmlFor="contribution-amount">Amount to add (UGX)</Label>
+            <Input
+              id="contribution-amount"
+              type="number"
+              min={0}
+              step={1000}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit">Save</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function WhatIfDialog({
   goal,
   transactions,
@@ -202,7 +262,9 @@ function WhatIfDialog({
   const topRecommendations = spendingAnalysis.slice(0, 3);
 
   const remaining = goal.targetAmount - goal.currentAmount;
-  const currentMonths = remaining / goal.monthlyContribution;
+  const safeTarget = goal.targetAmount > 0 ? goal.targetAmount : 1;
+  const safeMonthly = goal.monthlyContribution > 0 ? goal.monthlyContribution : 1;
+  const currentMonths = remaining / safeMonthly;
   const currentDays = currentMonths * 30;
 
   // Calculate best case scenario
@@ -211,10 +273,14 @@ function WhatIfDialog({
     0
   );
   const bestCaseMonthlyContribution = goal.monthlyContribution + totalPotentialSavings;
-  const bestCaseMonths = remaining / bestCaseMonthlyContribution;
+  const safeBestMonthly = bestCaseMonthlyContribution > 0 ? bestCaseMonthlyContribution : 1;
+  const bestCaseMonths = remaining / safeBestMonthly;
   const bestCaseDays = bestCaseMonths * 30;
-  const daysAccelerated = currentDays - bestCaseDays;
-  const monthsAccelerated = currentMonths - bestCaseMonths;
+  const daysAccelerated = Math.max(0, currentDays - bestCaseDays);
+  const monthsAccelerated = Math.max(0, currentMonths - bestCaseMonths);
+  const progressFasterPct = currentDays > 0 && Number.isFinite(currentDays)
+    ? (daysAccelerated / currentDays) * 100
+    : 0;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -242,6 +308,15 @@ function WhatIfDialog({
             <h3 className="text-sm font-semibold text-foreground mb-3">Current Status</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
+                <p className="text-xs text-muted-foreground mb-1">Progress</p>
+                <p className="font-mono text-lg font-bold text-foreground">
+                  {Math.min(100, (goal.currentAmount / safeTarget) * 100).toFixed(0)}%
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {formatCurrency(goal.currentAmount)} / {formatCurrency(goal.targetAmount)}
+                </p>
+              </div>
+              <div>
                 <p className="text-xs text-muted-foreground mb-1">Remaining Amount</p>
                 <p className="font-mono text-lg font-bold text-foreground">
                   {formatCurrency(remaining)}
@@ -266,6 +341,11 @@ function WhatIfDialog({
                 </p>
               </div>
             </div>
+            {goal.currentAmount === 0 && (
+              <p className="text-xs text-muted-foreground mt-3">
+                Use &quot;Update progress&quot; on the goal card to add contributions and see completion % increase.
+              </p>
+            )}
           </div>
 
           {/* Top Recommendations */}
@@ -361,11 +441,11 @@ function WhatIfDialog({
                 <div className="flex items-center justify-between text-xs mb-1">
                   <span className="text-muted-foreground">Progress Acceleration</span>
                   <span className="font-mono text-primary font-bold">
-                    {((daysAccelerated / currentDays) * 100).toFixed(1)}% faster
+                    {progressFasterPct.toFixed(1)}% faster
                   </span>
                 </div>
                 <Progress
-                  value={(daysAccelerated / currentDays) * 100}
+                  value={Math.min(100, progressFasterPct)}
                   className="h-2"
                 />
               </div>
@@ -445,15 +525,18 @@ function GoalOrbit({
   aiPrediction,
   transactions,
   onApply,
+  onUpdateProgress,
 }: {
   goal: Goal;
   index: number;
   aiPrediction?: { probability: number; monthsToComplete: number; successLikelihood: string };
   transactions: TrainingTransaction[];
   onApply: (goalId: string, newMonthlyContribution: number, addedSavings: number) => void;
+  onUpdateProgress: (goalId: string, newCurrentAmount: number) => void;
 }) {
   const config = statusConfig[goal.status];
-  const percentage = (goal.currentAmount / goal.targetAmount) * 100;
+  const safeTarget = goal.targetAmount > 0 ? goal.targetAmount : 1;
+  const percentage = Math.min(100, (goal.currentAmount / safeTarget) * 100);
   const days = daysUntil(goal.deadline);
   const remaining = goal.targetAmount - goal.currentAmount;
 
@@ -561,6 +644,10 @@ function GoalOrbit({
 
       {/* Actions */}
       <div className="flex items-center gap-2 mt-5 pt-4 border-t border-border">
+        <AddContributionDialog
+          goal={goal}
+          onSave={(newCurrent) => onUpdateProgress(goal.id, newCurrent)}
+        />
         <WhatIfDialog
           goal={goal}
           transactions={transactions}
@@ -714,6 +801,12 @@ export default function Goals() {
   const [trainingTransactions, setTrainingTransactions] = useState<TrainingTransaction[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [, setCountdownTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setCountdownTick((t) => t + 1), 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -896,6 +989,24 @@ export default function Goals() {
     });
   };
 
+  const handleUpdateGoalProgress = async (goalId: string, newCurrentAmount: number) => {
+    if (!userId) return;
+    const clamped = Math.max(0, Math.min(newCurrentAmount, goals.find((g) => g.id === goalId)?.targetAmount ?? newCurrentAmount));
+    const { error } = await supabase
+      .from("goals")
+      .update({ current_amount: clamped })
+      .eq("id", goalId)
+      .eq("user_id", userId);
+    if (error) {
+      toast({ title: "Update failed", description: error.message, variant: "destructive" });
+      return;
+    }
+    setGoals((prev) =>
+      prev.map((g) => (g.id === goalId ? { ...g, currentAmount: clamped } : g))
+    );
+    toast({ title: "Progress updated", description: formatCurrency(clamped) + " saved toward this goal." });
+  };
+
   const totalTarget = goals.reduce((sum, g) => sum + g.targetAmount, 0);
   const totalCurrent = goals.reduce((sum, g) => sum + g.currentAmount, 0);
   const onTrackCount = goals.filter((g) => g.status === "on-track").length;
@@ -960,6 +1071,7 @@ export default function Goals() {
               aiPrediction={aiPredictions[goal.id]}
               transactions={trainingTransactions}
               onApply={handleApplyRecommendations}
+              onUpdateProgress={handleUpdateGoalProgress}
             />
           ))}
         </div>

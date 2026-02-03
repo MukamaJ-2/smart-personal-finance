@@ -46,6 +46,12 @@ export default function QuickStats() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setCountdownNow(Date.now()), 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -186,7 +192,7 @@ export default function QuickStats() {
         link: "/goals",
       },
     ];
-  }, [transactions, goals]);
+  }, [transactions, goals, countdownNow]);
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
