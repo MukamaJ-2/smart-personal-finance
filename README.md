@@ -20,6 +20,20 @@ If you want to work locally using your own IDE, you can clone this repo and push
 
 The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
 
+## Project Structure
+
+```
+├── frontend/          # React/TypeScript frontend application
+│   ├── src/          # Source code
+│   ├── public/       # Static assets
+│   └── package.json  # Frontend dependencies
+├── backend/          # Backend services and infrastructure
+│   ├── training/     # Python ML model training
+│   ├── server/       # Node.js notification server
+│   └── supabase/     # Database migrations
+└── README.md         # This file
+```
+
 Follow these steps:
 
 ```sh
@@ -29,11 +43,27 @@ git clone <YOUR_GIT_URL>
 # Step 2: Navigate to the project directory.
 cd <YOUR_PROJECT_NAME>
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Step 3: Navigate to frontend and install dependencies
+cd frontend
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Step 3: Navigate to frontend and install dependencies
+cd frontend
+npm install
+
+# Step 4: Start the development server
 npm run dev
+```
+
+For backend services:
+
+```sh
+# Training ML models (requires Python)
+cd backend/training
+python train_models.py --model all
+
+# Notification server (from frontend directory)
+cd frontend
+npm run notify:server
 ```
 
 **Edit a file directly in GitHub**

@@ -115,7 +115,7 @@ export default function Auth() {
         sessionStorage.setItem("onboarding_completed", "1");
       } catch {}
     }
-    const nextPath = completedOnboarding ? "/" : "/onboarding";
+    const nextPath = completedOnboarding ? "/dashboard" : "/onboarding";
     setTimeout(() => {
       navigate(nextPath);
     }, 500);

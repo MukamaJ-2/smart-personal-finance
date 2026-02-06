@@ -353,7 +353,7 @@ export default function OnboardingSurvey() {
         sessionStorage.setItem("onboarding_just_completed", "1");
       } catch {}
     }
-    navigate("/", { replace: true });
+    navigate("/dashboard", { replace: true });
   };
 
   if (loading) {

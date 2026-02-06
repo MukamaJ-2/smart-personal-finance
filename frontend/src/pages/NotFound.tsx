@@ -79,7 +79,7 @@ const NotFound = () => {
               asChild
               className="bg-gradient-primary hover:opacity-90"
             >
-              <Link to="/">
+              <Link to="/dashboard">
                 <Home className="w-4 h-4 mr-2" />
                 Return Home
               </Link>
@@ -104,7 +104,7 @@ const NotFound = () => {
               Quick Links
             </p>
             <div className="flex flex-wrap justify-center gap-3">
-              <Link to="/" className="text-xs text-primary hover:text-primary-glow transition-colors">
+              <Link to="/dashboard" className="text-xs text-primary hover:text-primary-glow transition-colors">
                 Nexus Hub
               </Link>
               <span className="text-muted-foreground">•</span>

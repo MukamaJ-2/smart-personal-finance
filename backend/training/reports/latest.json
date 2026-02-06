@@ -21,7 +21,7 @@
   },
   "datasets": {
     "spending_rows": 6814,
-    "transactions_rows": 2237
+    "transactions_rows": 1508
   },
   "filters": {
     "allowed_categories": [
@@ -60,10 +60,10 @@
   },
   "metrics": {
     "anomaly_detector": {
-      "alert_rate": 0.0625,
-      "precision": 0.3929,
+      "alert_rate": 0.0728,
+      "precision": 0.4545,
       "recall": 1.0,
-      "samples": 448
+      "samples": 302
     },
     "budget_allocator": {
       "rmse": 0.0371,
@@ -83,44 +83,42 @@
     "transaction_categorizer": {
       "confusion_matrix": {
         "Communication": {
-          "Communication": 15,
-          "Debt Payments": 12
+          "Communication": 10,
+          "Eating Out": 8
         },
         "Debt Payments": {
-          "Debt Payments": 96
+          "Eating Out": 69
         },
         "Eating Out": {
-          "Debt Payments": 2,
-          "Eating Out": 95
+          "Eating Out": 75
         },
         "Food": {
-          "Food": 45
+          "Food": 30
         },
         "Income": {
-          "Income": 30
+          "Income": 18
         },
         "Other": {
-          "Debt Payments": 24,
-          "Other": 12
+          "Eating Out": 16
         },
         "Shopping": {
-          "Debt Payments": 3,
-          "Shopping": 48
+          "Eating Out": 2,
+          "Shopping": 30
         },
         "Transport": {
-          "Debt Payments": 21,
-          "Transport": 9
+          "Eating Out": 14,
+          "Transport": 6
         },
         "Utilities": {
-          "Debt Payments": 24,
-          "Utilities": 12
+          "Eating Out": 16,
+          "Utilities": 8
         }
       },
-      "macro_f1": 0.7326,
-      "samples": 448,
-      "top3_accuracy": 0.8393,
-      "weighted_f1": 0.781
+      "macro_f1": 0.5766,
+      "samples": 302,
+      "top3_accuracy": 0.8146,
+      "weighted_f1": 0.5098
     }
   },
-  "timestamp": "2026-02-03T21:28:40.540739+00:00"
+  "timestamp": "2026-02-06T14:36:56.991740+00:00"
 }

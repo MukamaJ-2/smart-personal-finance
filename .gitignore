@@ -22,3 +22,25 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Frontend build outputs
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/*.tsbuildinfo
+
+# Backend
+backend/training/__pycache__/
+backend/training/reports/*.html
+backend/training/reports/*.json

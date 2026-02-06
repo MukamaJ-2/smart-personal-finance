@@ -11,11 +11,11 @@ import numpy as np
 import pandas as pd
 
 
-ROOT = Path(__file__).resolve().parents[1]
-ARTIFACTS_DIR = ROOT / "src" / "lib" / "ai" / "models" / "artifacts"
-REPORTS_DIR = ROOT / "training" / "reports"
+ROOT = Path(__file__).resolve().parents[2]  # Go up 2 levels: backend/training -> backend -> root
+ARTIFACTS_DIR = ROOT / "frontend" / "src" / "lib" / "ai" / "models" / "artifacts"
+REPORTS_DIR = ROOT / "backend" / "training" / "reports"
 
-DATASET_MANIFEST = ROOT / "training" / "data" / "datasets_manifest.json"
+DATASET_MANIFEST = ROOT / "backend" / "training" / "data" / "datasets_manifest.json"
 
 DEFAULT_DATASET_PATHS = {
     # Curated clean sources for transaction categorization/spending series
@@ -1402,7 +1402,7 @@ def main() -> None:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.export_clean:
-        export_dir = ROOT / "training" / "models" / args.model / "cleaned"
+        export_dir = ROOT / "backend" / "training" / "models" / args.model / "cleaned"
         export_clean_datasets(args.model, export_dir)
         print("Cleaned data written to:", export_dir)
         return

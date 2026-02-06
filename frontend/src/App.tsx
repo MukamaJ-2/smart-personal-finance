@@ -25,11 +25,12 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
+          <Route path="/" element={<Auth />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/login" element={<Auth />} />
           <Route path="/register" element={<Auth />} />
           <Route path="/onboarding" element={<OnboardingSurvey />} />
-          <Route path="/" element={<RequireOnboarding><Index /></RequireOnboarding>} />
+          <Route path="/dashboard" element={<RequireOnboarding><Index /></RequireOnboarding>} />
           <Route path="/transactions" element={<RequireOnboarding><Transactions /></RequireOnboarding>} />
           <Route path="/flux-pods" element={<RequireOnboarding><FluxPods /></RequireOnboarding>} />
           <Route path="/goals" element={<RequireOnboarding><Goals /></RequireOnboarding>} />

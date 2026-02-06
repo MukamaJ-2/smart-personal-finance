@@ -19,7 +19,7 @@ import { toast } from "@/hooks/use-toast";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 const navItems = [
-  { icon: LayoutDashboard, label: "Wallet Hub", path: "/" },
+  { icon: LayoutDashboard, label: "Wallet Hub", path: "/dashboard" },
   { icon: Wallet, label: "Transactions", path: "/transactions" },
   { icon: Zap, label: "Flux Pods", path: "/flux-pods" },
   { icon: Target, label: "Goals", path: "/goals" },

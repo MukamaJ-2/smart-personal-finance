@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import express from "express";
 import nodemailer from "nodemailer";
 
-dotenv.config({ path: ".env.local" });
+dotenv.config({ path: "../../.env.local" });
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));

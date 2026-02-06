@@ -30,12 +30,12 @@
 </head>
 <body>
     <h1>Training Report</h1>
-    <p class="meta">Generated: 2026-02-03T21:28:40.540739+00:00</p>
+    <p class="meta">Generated: 2026-02-06T14:36:56.991740+00:00</p>
 
     <section class="datasets">
         <h2 style="font-size: 1.1rem; margin-bottom: 0.5rem;">Dataset sizes</h2>
-        <div class="bar-label"><span>Transactions</span><span>2237 rows</span></div>
-        <div class="bar"><div class="bar-fill" style="width: 33%;"></div></div>
+        <div class="bar-label"><span>Transactions</span><span>1508 rows</span></div>
+        <div class="bar"><div class="bar-fill" style="width: 22%;"></div></div>
         <div class="bar-label"><span>Spending (time series)</span><span>6814 rows</span></div>
         <div class="bar"><div class="bar-fill" style="width: 100%;"></div></div>
         <h3 style="font-size: 0.95rem; margin-top: 1rem; color: var(--muted);">Sources</h3>
@@ -47,8 +47,8 @@
         
             <div class="card">
                 <h3>Transaction Categorizer</h3>
-                <p class="samples">Samples: 448</p>
-                <table class="metrics"><tbody><tr><td>macro_f1</td><td>0.7326</td><td> (target: 0.35)</td><td>✓</td></tr><tr><td>top3_accuracy</td><td>0.8393</td><td> (target: 0.7)</td><td>✓</td></tr></tbody></table>
+                <p class="samples">Samples: 302</p>
+                <table class="metrics"><tbody><tr><td>macro_f1</td><td>0.5766</td><td> (target: 0.35)</td><td>✓</td></tr><tr><td>top3_accuracy</td><td>0.8146</td><td> (target: 0.7)</td><td>✓</td></tr></tbody></table>
             </div>
             
             <div class="card">
@@ -71,8 +71,8 @@
             
             <div class="card">
                 <h3>Anomaly Detector</h3>
-                <p class="samples">Samples: 448</p>
-                <table class="metrics"><tbody><tr><td>precision</td><td>0.3929</td><td> (target: 0.25)</td><td>✓</td></tr><tr><td>alert_rate</td><td>0.0625</td><td> (target: 0.1)</td><td>✓</td></tr><tr><td>recall</td><td>1.0</td><td> (target: 0.45)</td><td>✓</td></tr></tbody></table>
+                <p class="samples">Samples: 302</p>
+                <table class="metrics"><tbody><tr><td>precision</td><td>0.4545</td><td> (target: 0.25)</td><td>✓</td></tr><tr><td>alert_rate</td><td>0.0728</td><td> (target: 0.1)</td><td>✓</td></tr><tr><td>recall</td><td>1.0</td><td> (target: 0.45)</td><td>✓</td></tr></tbody></table>
             </div>
             
     </div>
@@ -82,7 +82,7 @@
             <div class="table-wrap">
                 <table class="confusion">
                     <thead><tr><th>True \ Pred</th><th>Communication</th><th>Debt Payments</th><th>Eating Out</th><th>Food</th><th>Income</th><th>Other</th><th>Shopping</th><th>Transport</th><th>Utilities</th></tr></thead>
-                    <tbody><tr><th>Communication</th><td class="diag">15</td><td class="off">12</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Debt Payments</th><td class="off">0</td><td class="diag">96</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Eating Out</th><td class="off">0</td><td class="off">2</td><td class="diag">95</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Food</th><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">45</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Income</th><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">30</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Other</th><td class="off">0</td><td class="off">24</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">12</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Shopping</th><td class="off">0</td><td class="off">3</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">48</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Transport</th><td class="off">0</td><td class="off">21</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">9</td><td class="off">0</td></tr><tr><th>Utilities</th><td class="off">0</td><td class="off">24</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">12</td></tr></tbody>
+                    <tbody><tr><th>Communication</th><td class="diag">10</td><td class="off">0</td><td class="off">8</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Debt Payments</th><td class="off">0</td><td class="diag">0</td><td class="off">69</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Eating Out</th><td class="off">0</td><td class="off">0</td><td class="diag">75</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Food</th><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">30</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Income</th><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">18</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Other</th><td class="off">0</td><td class="off">0</td><td class="off">16</td><td class="off">0</td><td class="off">0</td><td class="diag">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Shopping</th><td class="off">0</td><td class="off">0</td><td class="off">2</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">30</td><td class="off">0</td><td class="off">0</td></tr><tr><th>Transport</th><td class="off">0</td><td class="off">0</td><td class="off">14</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">6</td><td class="off">0</td></tr><tr><th>Utilities</th><td class="off">0</td><td class="off">0</td><td class="off">16</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="off">0</td><td class="diag">8</td></tr></tbody>
                 </table>
             </div>
         </div>
