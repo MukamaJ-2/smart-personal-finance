@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const rawUrl = import.meta.env.VITE_SUPABASE_URL;
 const rawKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -44,16 +44,13 @@ function getStubClient(): SupabaseClient {
   } as unknown as SupabaseClient;
 }
 
-// Load @supabase/supabase-js only when env is set so it never runs (or throws) when env is missing
-const supabase: SupabaseClient = hasEnv
-  ? await (async () => {
-      const { createClient } = await import("@supabase/supabase-js");
-      try {
-        return createClient(url, key);
-      } catch {
-        return getStubClient();
-      }
-    })()
-  : getStubClient();
+function createSupabaseClient(): SupabaseClient {
+  if (!hasEnv) return getStubClient();
+  try {
+    return createClient(url, key);
+  } catch {
+    return getStubClient();
+  }
+}
 
-export { supabase };
+export const supabase = createSupabaseClient();
