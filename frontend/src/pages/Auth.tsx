@@ -18,10 +18,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { setUserEmail } from "@/lib/notifications";
-import { supabase } from "@/lib/supabase";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 
 export default function Auth() {
@@ -62,10 +63,10 @@ export default function Auth() {
       });
       return;
     }
-    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+    if (!isSupabaseConfigured) {
       toast({
-        title: "Supabase not configured",
-        description: "Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.",
+        title: "Login not available",
+        description: "This deployment does not have Supabase configured. Ask the administrator to set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the deployment environment (e.g. Railway Variables) and redeploy.",
         variant: "destructive",
       });
       return;
@@ -150,10 +151,10 @@ export default function Auth() {
       return;
     }
 
-    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+    if (!isSupabaseConfigured) {
       toast({
-        title: "Supabase not configured",
-        description: "Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.",
+        title: "Sign up not available",
+        description: "This deployment does not have Supabase configured. Ask the administrator to set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the deployment environment (e.g. Railway Variables) and redeploy.",
         variant: "destructive",
       });
       return;
@@ -257,6 +258,15 @@ export default function Auth() {
             Your secure financial command center
           </p>
         </motion.div>
+
+        {!isSupabaseConfigured && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertTitle>Login not configured</AlertTitle>
+            <AlertDescription>
+              This deployment does not have Supabase set up. To enable sign in and sign up, add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your deployment environment (e.g. Railway → Variables), then redeploy.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Auth Card */}
         <motion.div
