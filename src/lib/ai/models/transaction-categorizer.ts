@@ -138,6 +138,7 @@ const categoryWeights: Record<string, Record<string, number>> = {
 };
 
 const MIN_HISTORY = 5;
+const MAX_HISTORY_FOR_SIGNALS = 500; // Cap so categorization stays responsive with large lists
 const MIN_CONFIDENCE = 0.45;
 const MAX_CONFIDENCE = 0.9;
 const HISTORY_PRIOR_WEIGHT = 0.2;
@@ -209,6 +210,9 @@ const brandOverrides: Record<string, string> = {
   disney: "Entertainment",
   "prime video": "Entertainment",
   "youtube premium": "Entertainment",
+  safeboda: "Transport",
+  bolt: "Transport",
+  farasi: "Transport",
 };
 
 const categoryKeywords: Record<string, string[]> = {
@@ -248,7 +252,7 @@ const categoryKeywords: Record<string, string[]> = {
   Dining: ["restaurant", "dining", "lunch", "dinner", "breakfast", "pizza", "burger", "kfc", "mcdonald", "takeout", "delivery"],
   Shopping: ["shopping", "store", "retail", "mall", "market", "purchase", "order", "buy", "clothing", "fashion"],
   Tech: ["software", "app", "laptop", "phone", "tablet", "subscription", "saas", "cloud", "electronics", "gadget"],
-  Transport: ["uber", "taxi", "ride", "fuel", "gas", "transport", "bus", "train", "metro", "parking", "commute"],
+  Transport: ["uber", "bolt", "taxi", "boda", "bodaboda", "safeboda", "matatu", "farasi", "ride", "fuel", "gas", "transport", "bus", "train", "metro", "parking", "commute"],
   Health: [
     "gym",
     "pharmacy",
@@ -418,7 +422,11 @@ export function categorizeTransaction(
   };
 
   const features = extractTransactionFeatures(tx);
-  const userSignals = buildUserSignals(userHistory);
+  const historySlice =
+    userHistory.length > MAX_HISTORY_FOR_SIGNALS
+      ? userHistory.slice(-MAX_HISTORY_FOR_SIGNALS)
+      : userHistory;
+  const userSignals = buildUserSignals(historySlice);
   const tokens = extractTokens(description);
   const tokensWithNgrams = tokens.concat(addNgrams(tokens));
   const combinedTextRaw = `${description} ${merchant ?? ""}`;

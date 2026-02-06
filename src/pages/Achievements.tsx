@@ -54,7 +54,7 @@ const achievements: Achievement[] = [
   {
     id: "3",
     title: "Savings Master",
-    description: "Save ₹1,00,000 in total",
+    description: "Save UGX 100,000 in total",
     icon: PiggyBank,
     category: "savings",
     points: 100,
@@ -88,13 +88,13 @@ const achievements: Achievement[] = [
   {
     id: "6",
     title: "Millionaire",
-    description: "Reach ₹10,00,000 net worth",
+    description: "Reach UGX 10,000,000 net worth",
     icon: TrendingUp,
     category: "milestone",
     points: 200,
     unlocked: false,
-    progress: 850000,
-    target: 1000000,
+    progress: 8500000,
+    target: 10000000,
     rarity: "legendary",
   },
   {
@@ -174,6 +174,12 @@ const rarityConfig = {
   },
 };
 
+function formatProgressValue(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(value);
+}
+
 const totalPoints = achievements.filter((a) => a.unlocked).reduce((sum, a) => sum + a.points, 0);
 const unlockedCount = achievements.filter((a) => a.unlocked).length;
 const completionRate = (unlockedCount / achievements.length) * 100;
@@ -196,10 +202,10 @@ function AchievementCard({ achievement, index }: { achievement: Achievement; ind
         config.glow
       )}
     >
-      {/* Lock overlay for locked achievements */}
+      {/* Lock badge for locked achievements - corner only so progress stays visible */}
       {!achievement.unlocked && (
-        <div className="absolute inset-0 bg-background/60 backdrop-blur-sm flex items-center justify-center z-10">
-          <Lock className="w-8 h-8 text-muted-foreground" />
+        <div className="absolute top-3 right-3 z-10 flex items-center justify-center w-9 h-9 rounded-lg bg-muted/90 border border-border">
+          <Lock className="w-4 h-4 text-muted-foreground" />
         </div>
       )}
 
@@ -234,7 +240,7 @@ function AchievementCard({ achievement, index }: { achievement: Achievement; ind
               <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
                 <span>Progress</span>
                 <span className="font-mono">
-                  {achievement.progress} / {achievement.target}
+                  {formatProgressValue(achievement.progress!)} / {formatProgressValue(achievement.target!)}
                 </span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">

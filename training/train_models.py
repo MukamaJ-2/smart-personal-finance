@@ -124,6 +124,8 @@ CATEGORY_ALIASES = {
     "fuel": "Transport",
     "uber/lyft": "Transport",
     "taxi": "Transport",
+    "safeboda": "Transport",
+    "farasi": "Transport",
     "travel": "Travel",
     "travl": "Travel",
     "traval": "Travel",
@@ -270,6 +272,30 @@ STRONG_TOKENS = {
     "starbucks",
     "brewing",
     "tavern",
+}
+
+# Curated extra keywords per category to expand vocabulary beyond training data
+CURATED_EXTRA_KEYWORDS: Dict[str, List[str]] = {
+    "Rent": ["rent", "landlord", "lease", "apartment", "accommodation", "housing", "mortgage", "room", "premises"],
+    "Utilities": ["umeme", "nwsc", "yaka", "electricity", "water", "power", "bill", "utility", "prepaid", "postpaid", "meter"],
+    "Food": ["grocery", "supermarket", "market", "beans", "rice", "maize", "flour", "oil", "sugar", "vegetables", "fruits", "walmart", "tesco", "nakumatt", "shoprite", "tuskys"],
+    "Eating Out": ["restaurant", "cafe", "kfc", "mcdonald", "pizza", "burger", "takeaway", "delivery", "dining", "lunch", "dinner", "breakfast", "chicken", "chips", "junk", "canteen", "hotel_meal", "catering"],
+    "Coffee": ["coffee", "cafe", "espresso", "latte", "cappuccino", "starbucks", "java", "barista", "tea", "brew"],
+    "Transport": ["uber", "bolt", "taxi", "boda", "bodaboda", "safeboda", "matatu", "farasi", "fuel", "petrol", "gas_station", "shell", "total", "chevron", "parking", "toll", "bus", "train", "airline", "flight", "booking"],
+    "Communication": ["airtime", "data", "bundle", "mtn", "airtel", "africell", "lycamobile", "topup", "top_up", "mobile", "sim", "internet", "broadband", "wifi", "phone", "calling"],
+    "Health": ["pharmacy", "clinic", "hospital", "doctor", "medicine", "drugs", "lab", "checkup", "gym", "fitness", "medical", "health", "insurance_health", "diagnosis"],
+    "Education": ["school", "fees", "tuition", "university", "college", "books", "stationery", "exam", "registration", "semester", "course", "training", "workshop"],
+    "Shopping": ["amazon", "ebay", "mall", "store", "retail", "clothing", "shoes", "electronics", "hardware", "target", "best_buy", "jumia", "konga", "alibaba"],
+    "Entertainment": ["netflix", "spotify", "movie", "cinema", "concert", "game", "gaming", "streaming", "showmax", "youtube", "disney", "prime_video", "theater", "music"],
+    "Insurance": ["insurance", "premium", "policy", "claim", "auto_insurance", "health_insurance", "life_insurance"],
+    "Debt Payments": ["loan", "repayment", "debt", "emi", "installment", "credit_card", "overdraft", "borrow", "lending", "saccos", "mobile_money_loan"],
+    "Savings": ["savings", "deposit", "fixed", "investment", "village_savings", "vsla", "piggy", "emergency_fund"],
+    "Gifts / Donations": ["donation", "charity", "church", "tithe", "offering", "gift", "send_money", "remittance", "mpesa", "mobile_money", "send", "received_money"],
+    "Income": ["salary", "paycheck", "wage", "bonus", "freelance", "refund", "dividend", "interest", "stipend", "allowance", "payment_received", "deposit_income", "payroll"],
+    "Personal Care": ["salon", "barber", "haircut", "spa", "cosmetics", "toiletries", "skincare", "grooming", "beauty"],
+    "Travel": ["flight", "airline", "hotel", "airbnb", "booking", "vacation", "trip", "tourism", "visa", "passport", "lodging"],
+    "Tech": ["software", "subscription", "saas", "app", "apple", "microsoft", "google_play", "antivirus", "cloud", "hosting", "domain"],
+    "Miscellaneous": ["other", "misc", "miscellaneous", "unknown", "cash", "withdrawal", "atm"],
 }
 
 
@@ -603,8 +629,8 @@ def train_transaction_categorizer(df: pd.DataFrame) -> str:
 
     keywords = {}
     weights = {}
-    token_weights = build_token_weights(token_counts, min_count=2, top_n=80)
-    keywords = select_top_tokens(token_weights, top_n=25)
+    token_weights = build_token_weights(token_counts, min_count=2, top_n=120)
+    keywords = select_top_tokens(token_weights, top_n=50)
 
     for category, tokens in token_counts.items():
 
@@ -618,6 +644,50 @@ def train_transaction_categorizer(df: pd.DataFrame) -> str:
                 "isSmall": 0.6 if avg_amount < 1000 else 0.2,
                 "isMedium": 0.4,
             }
+
+    # Merge curated extra keywords and token weights so categorizer has more vocabulary
+    for cat, extra_tokens in CURATED_EXTRA_KEYWORDS.items():
+        normalized_extra = [
+            re.sub(r"[^a-z0-9_]", "_", t.lower()).strip("_").replace("__", "_")
+            for t in extra_tokens
+            if len(t) > 2
+        ]
+        normalized_extra = [t for t in normalized_extra if t and t not in STOPWORDS]
+        if not normalized_extra:
+            continue
+        if cat not in keywords:
+            keywords[cat] = []
+        existing_set = set(keywords[cat])
+        for token in normalized_extra:
+            if token not in existing_set:
+                keywords[cat].append(token)
+                existing_set.add(token)
+        if cat not in token_weights:
+            token_weights[cat] = {}
+        # Assign a modest weight so curated words influence prediction
+        cur_weight = 0.15
+        for token in normalized_extra:
+            if token not in token_weights[cat]:
+                token_weights[cat][token] = round(cur_weight, 4)
+                cur_weight = max(0.05, cur_weight - 0.005)
+
+    # Ensure every category that has keywords/token_weights also has weights and priors
+    # so the frontend scores them and words reflect their respective categories
+    default_weight = {"amount": 0.1, "isLarge": 0.2, "isSmall": 0.6, "isMedium": 0.4}
+    all_categories = set(keywords.keys()) | set(token_weights.keys())
+    for cat in all_categories:
+        if cat not in weights:
+            weights[cat] = default_weight.copy()
+    # Add small prior for categories not in dataset so they are considered in scoring
+    num_all = len(all_categories)
+    small_prior = 0.01
+    for cat in all_categories:
+        if cat not in priors:
+            priors[cat] = small_prior
+    # Renormalize priors to sum to 1
+    total_prior = sum(priors.values())
+    if total_prior > 0:
+        priors = {k: round(v / total_prior, 10) for k, v in priors.items()}
 
     content = (
         "export const trainedCategoryKeywords = "
@@ -664,8 +734,8 @@ def build_categorizer_model(
 
     keywords = {}
     weights = {}
-    token_weights = build_token_weights(token_counts, min_count=2, top_n=80)
-    keywords = select_top_tokens(token_weights, top_n=25)
+    token_weights = build_token_weights(token_counts, min_count=2, top_n=120)
+    keywords = select_top_tokens(token_weights, top_n=50)
 
     for category, tokens in token_counts.items():
 
@@ -679,6 +749,24 @@ def build_categorizer_model(
                 "isSmall": 0.6 if avg_amount < 1000 else 0.2,
                 "isMedium": 0.4,
             }
+
+    # Merge curated extra keywords/weights for build_categorizer_model (e.g. evaluation)
+    for cat, extra_tokens in CURATED_EXTRA_KEYWORDS.items():
+        normalized_extra = [
+            re.sub(r"[^a-z0-9_]", "_", t.lower()).strip("_").replace("__", "_")
+            for t in extra_tokens
+            if len(t) > 2
+        ]
+        normalized_extra = [t for t in normalized_extra if t and t not in STOPWORDS]
+        if not normalized_extra:
+            continue
+        if cat not in token_weights:
+            token_weights[cat] = {}
+        cur_weight = 0.15
+        for token in normalized_extra:
+            if token not in token_weights[cat]:
+                token_weights[cat][token] = round(cur_weight, 4)
+                cur_weight = max(0.05, cur_weight - 0.005)
 
     return token_weights, weights, priors
 

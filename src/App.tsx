@@ -13,6 +13,8 @@ import Reports from "./pages/Reports";
 import Achievements from "./pages/Achievements";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import OnboardingSurvey from "./pages/OnboardingSurvey";
+import RequireOnboarding from "./components/auth/RequireOnboarding";
 
 const queryClient = new QueryClient();
 
@@ -26,14 +28,15 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route path="/login" element={<Auth />} />
           <Route path="/register" element={<Auth />} />
-          <Route path="/" element={<Index />} />
-          <Route path="/transactions" element={<Transactions />} />
-          <Route path="/flux-pods" element={<FluxPods />} />
-          <Route path="/goals" element={<Goals />} />
-          <Route path="/companion" element={<Companion />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/achievements" element={<Achievements />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/onboarding" element={<OnboardingSurvey />} />
+          <Route path="/" element={<RequireOnboarding><Index /></RequireOnboarding>} />
+          <Route path="/transactions" element={<RequireOnboarding><Transactions /></RequireOnboarding>} />
+          <Route path="/flux-pods" element={<RequireOnboarding><FluxPods /></RequireOnboarding>} />
+          <Route path="/goals" element={<RequireOnboarding><Goals /></RequireOnboarding>} />
+          <Route path="/companion" element={<RequireOnboarding><Companion /></RequireOnboarding>} />
+          <Route path="/reports" element={<RequireOnboarding><Reports /></RequireOnboarding>} />
+          <Route path="/achievements" element={<RequireOnboarding><Achievements /></RequireOnboarding>} />
+          <Route path="/settings" element={<RequireOnboarding><Settings /></RequireOnboarding>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Target,
@@ -26,6 +27,8 @@ import { aiService } from "@/lib/ai/ai-service";
 import type { TrainingTransaction } from "@/lib/ai/training-data";
 import { Badge } from "@/components/ui/badge";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import type { OnboardingAnswers } from "@/lib/onboarding";
+import { getSuggestedGoalNameFromSurvey, getPlannedExpenseGoalSuggestion } from "@/lib/onboarding";
 
 interface Goal {
   id: string;
@@ -686,12 +689,31 @@ function GoalOrbit({
   );
 }
 
-function NewGoalDialog({ onAdd }: { onAdd: (goal: Goal) => void }) {
-  const [open, setOpen] = useState(false);
+function NewGoalDialog({
+  onAdd,
+  suggestedName,
+  defaultOpen,
+}: {
+  onAdd: (goal: Goal) => void;
+  suggestedName?: string | null;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(!!defaultOpen);
   const [name, setName] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
   const [deadline, setDeadline] = useState("");
   const [monthlyContribution, setMonthlyContribution] = useState("");
+
+  useEffect(() => {
+    if (open && suggestedName && !name) {
+      setName(suggestedName);
+    }
+  }, [open, suggestedName]);
+
+  const handleOpenChange = (o: boolean) => {
+    setOpen(o);
+    if (!o) setName("");
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -721,7 +743,7 @@ function NewGoalDialog({ onAdd }: { onAdd: (goal: Goal) => void }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button className="bg-gradient-primary hover:opacity-90">
           <Plus className="w-4 h-4 mr-2" />
@@ -796,12 +818,21 @@ function NewGoalDialog({ onAdd }: { onAdd: (goal: Goal) => void }) {
 }
 
 export default function Goals() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const createFromUrl = searchParams.get("create");
   const [goals, setGoals] = useState<Goal[]>([]);
   const [aiPredictions, setAiPredictions] = useState<Record<string, { probability: number; monthsToComplete: number; successLikelihood: string }>>({});
   const [trainingTransactions, setTrainingTransactions] = useState<TrainingTransaction[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
+  const [profileAnswers, setProfileAnswers] = useState<OnboardingAnswers | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [, setCountdownTick] = useState(0);
+
+  const suggestedGoalName =
+    (createFromUrl && decodeURIComponent(createFromUrl)) ||
+    (profileAnswers && (getSuggestedGoalNameFromSurvey(profileAnswers) || getPlannedExpenseGoalSuggestion(profileAnswers))) ||
+    null;
+  const openNewGoalByDefault = !!createFromUrl;
 
   useEffect(() => {
     const interval = setInterval(() => setCountdownTick((t) => t + 1), 60 * 1000);
@@ -856,6 +887,13 @@ export default function Goals() {
           .reduce((sum, tx) => sum + tx.amount, 0);
         aiService.initialize(parsed, incomeTotal);
       }
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("onboarding_answers")
+        .eq("id", userData.user.id)
+        .maybeSingle();
+      if (!isActive) return;
+      setProfileAnswers((profileData as { onboarding_answers?: OnboardingAnswers } | null)?.onboarding_answers ?? null);
       setIsLoading(false);
     };
     loadData();
@@ -1024,7 +1062,18 @@ export default function Goals() {
             <h1 className="font-display text-2xl font-bold text-foreground">Goals & Orbits</h1>
             <p className="text-muted-foreground text-sm mt-1">Track your financial milestones</p>
           </div>
-          <NewGoalDialog onAdd={handleAddGoal} />
+          <NewGoalDialog
+            onAdd={(goal) => {
+              handleAddGoal(goal);
+              setSearchParams((p) => {
+                const next = new URLSearchParams(p);
+                next.delete("create");
+                return next;
+              });
+            }}
+            suggestedName={suggestedGoalName}
+            defaultOpen={openNewGoalByDefault}
+          />
         </motion.header>
 
         {isLoading && (

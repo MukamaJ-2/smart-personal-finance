@@ -3,16 +3,28 @@ import { Bell } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { getNotifications, type AppNotification } from "@/lib/notifications";
+import { supabase } from "@/lib/supabase";
 
 export default function NotificationsPanel() {
+  const [userId, setUserId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   useEffect(() => {
-    setNotifications(getNotifications());
-    const handler = () => setNotifications(getNotifications());
+    let isActive = true;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!isActive) return;
+      setUserId(user?.id ?? null);
+    })();
+    return () => { isActive = false; };
+  }, []);
+
+  useEffect(() => {
+    setNotifications(getNotifications(userId));
+    const handler = () => setNotifications(getNotifications(userId));
     window.addEventListener("storage", handler);
     return () => window.removeEventListener("storage", handler);
-  }, []);
+  }, [userId]);
 
   const recent = useMemo(() => notifications.slice(0, 4), [notifications]);
 

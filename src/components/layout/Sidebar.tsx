@@ -96,6 +96,10 @@ export default function Sidebar() {
   }, [transactions]);
 
   const handleLogout = async () => {
+    try {
+      sessionStorage.removeItem("onboarding_completed");
+      sessionStorage.removeItem("onboarding_just_completed");
+    } catch {}
     await supabase.auth.signOut();
     toast({
       title: "Logged out",

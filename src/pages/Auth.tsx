@@ -96,7 +96,7 @@ export default function Auth() {
     let displayName = "Welcome back!";
     const { data: profileData } = await supabase
       .from("profiles")
-      .select("name")
+      .select("name, onboarding_completed_at")
       .eq("id", data.user.id)
       .maybeSingle();
     if (profileData?.name) {
@@ -107,10 +107,17 @@ export default function Auth() {
       description: displayName,
     });
     setUserEmail(data.user.email ?? normalizedEmail);
-    
-    // Navigate to dashboard
+
+    // Survey only for accounts that haven't completed it; returning users go straight to dashboard
+    const completedOnboarding = !!profileData?.onboarding_completed_at;
+    if (completedOnboarding && typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem("onboarding_completed", "1");
+      } catch {}
+    }
+    const nextPath = completedOnboarding ? "/" : "/onboarding";
     setTimeout(() => {
-      navigate("/");
+      navigate(nextPath);
     }, 500);
   };
 
@@ -202,10 +209,10 @@ export default function Auth() {
     if (data.session) {
       toast({
         title: "Account created!",
-        description: "Welcome to UniGuard Wallet. Your account has been created successfully.",
+        description: "Welcome to UniGuard Wallet. Complete a short survey to personalize your experience.",
       });
       setTimeout(() => {
-        navigate("/");
+        navigate("/onboarding");
       }, 500);
     } else {
       toast({

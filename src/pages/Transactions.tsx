@@ -32,7 +32,6 @@ import {
   Shield,
   CreditCard,
   MoreHorizontal,
-  Calendar,
 } from "lucide-react";
 import AppLayout from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -156,41 +155,47 @@ interface ParsedTransaction {
   category: string;
 }
 
-function parseNaturalLanguage(input: string): ParsedTransaction | null {
+const APP_CATEGORIES = Object.keys(categoryIcons);
+
+function parseNaturalLanguage(input: string): (ParsedTransaction & { confidence?: number }) | null {
   const lower = input.toLowerCase();
-  
-  // Extract amount (look for numbers with k, K, or full numbers)
   const amountMatch = input.match(/(\d+(?:\.\d+)?)\s*(k|K|thousand|thousands)?/i);
   if (!amountMatch) return null;
-  
   let amount = parseFloat(amountMatch[1]);
   if (amountMatch[2] && /k|thousand/i.test(amountMatch[2])) {
     amount *= 1000;
   }
-  
-  // Determine type
   const isIncome = /received|income|salary|payment|deposit|earned|got|refund/i.test(lower);
   const isExpense = /spent|bought|purchase|paid|expense|cost/i.test(lower);
   const type: "income" | "expense" = isIncome ? "income" : (isExpense ? "expense" : "expense");
-  
-  // Use AI model for categorization
   const aiResult = aiService.categorizeTransaction(input, amount, undefined, type);
-  const category = aiResult.category;
-  
-  // Extract description
+  const category = APP_CATEGORIES.includes(aiResult.category) ? aiResult.category : "Miscellaneous";
   let description = input.trim();
   if (description.length > 50) {
     description = description.substring(0, 50) + "...";
   }
-  
-  return { description, amount, type, category };
+  return { description, amount, type, category, confidence: aiResult.confidence };
 }
+
+const QUICK_ENTRY_DEBOUNCE_MS = 350;
 
 function QuickEntry({ onClose, onAdd }: { onClose: () => void; onAdd: (tx: Transaction) => void }) {
   const [input, setInput] = useState("");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
-  const parsed = input ? parseNaturalLanguage(input) : null;
+  const [parsed, setParsed] = useState<(ParsedTransaction & { confidence?: number }) | null>(null);
+
+  // Debounce categorization so the trained model doesn't run on every keystroke
+  useEffect(() => {
+    if (!input.trim()) {
+      setParsed(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setParsed(parseNaturalLanguage(input));
+    }, QUICK_ENTRY_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [input]);
 
   useEffect(() => {
     return () => {};
@@ -354,14 +359,11 @@ function QuickEntry({ onClose, onAdd }: { onClose: () => void; onAdd: (tx: Trans
               </div>
               <div className="flex items-center justify-between mt-2">
                 <p className="text-xs text-muted-foreground">Today • Category: {parsed.category}</p>
-                {(() => {
-                  const aiResult = aiService.categorizeTransaction(parsed.description, parsed.amount, undefined, parsed.type);
-                  return (
-                    <Badge variant="outline" className="text-xs border-primary/30 text-primary">
-                      {Math.round(aiResult.confidence * 100)}% confidence
-                    </Badge>
-                  );
-                })()}
+                {parsed.confidence != null && (
+                  <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+                    {Math.round(parsed.confidence * 100)}% confidence
+                  </Badge>
+                )}
               </div>
             </motion.div>
           )}
@@ -407,7 +409,7 @@ export default function Transactions() {
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
   const [anomalies, setAnomalies] = useState<Record<string, { isAnomaly: boolean; severity: string; reason: string }>>({});
-  const [isSeeding, setIsSeeding] = useState(false);
+  const [recategorizing, setRecategorizing] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -510,15 +512,18 @@ export default function Transactions() {
         };
 
         const notificationId = `anomaly-${tx.id}`;
-        addNotification({
-          id: notificationId,
-          type: "anomaly",
-          title: "Anomaly detected",
-          message: result.reason,
-          createdAt: new Date().toISOString(),
-        });
+        addNotification(
+          {
+            id: notificationId,
+            type: "anomaly",
+            title: "Anomaly detected",
+            message: result.reason,
+            createdAt: new Date().toISOString(),
+          },
+          userId
+        );
 
-        if (!wasEmailSent(notificationId)) {
+        if (!wasEmailSent(notificationId, userId)) {
           const to = getUserEmail();
           if (to) {
             fetch(import.meta.env.VITE_NOTIFICATION_API_URL ?? "http://localhost:5174/api/notifications", {
@@ -531,7 +536,7 @@ export default function Transactions() {
               }),
             })
               .then(() => {
-                markEmailSent(notificationId);
+                markEmailSent(notificationId, userId);
               })
               .catch((error) => {
                 console.error("Failed to send notification email", error);
@@ -648,13 +653,19 @@ export default function Transactions() {
   const handleRecategorize = () => {
     const amountValue = parseFloat(editDraft.amount);
     if (Number.isNaN(amountValue) || !editDraft.description.trim()) return;
-    const aiResult = aiService.categorizeTransaction(
-      editDraft.description,
-      amountValue,
-      undefined,
-      editDraft.type
-    );
-    setEditDraft((prev) => ({ ...prev, category: aiResult.category }));
+    setRecategorizing(true);
+    // Run categorizer off the main thread tick so the UI stays responsive
+    window.setTimeout(() => {
+      const aiResult = aiService.categorizeTransaction(
+        editDraft.description,
+        amountValue,
+        undefined,
+        editDraft.type
+      );
+      const category = APP_CATEGORIES.includes(aiResult.category) ? aiResult.category : "Miscellaneous";
+      setEditDraft((prev) => ({ ...prev, category }));
+      setRecategorizing(false);
+    }, 0);
   };
 
   const handleDeleteTransaction = async (id: string) => {
@@ -697,76 +708,6 @@ export default function Transactions() {
     toast({
       title: "Transactions deleted",
       description: `${count} transaction${count > 1 ? "s" : ""} removed.`,
-    });
-  };
-
-  const getLatestTransaction = () => {
-    if (!transactions.length) return null;
-    return [...transactions].sort((a, b) => {
-      const dateA = new Date(`${a.date}T${a.time || "00:00"}`).getTime();
-      const dateB = new Date(`${b.date}T${b.time || "00:00"}`).getTime();
-      return dateB - dateA;
-    })[0];
-  };
-
-  const handleGenerateHistory = async () => {
-    if (!userId) {
-      toast({
-        title: "Sign in required",
-        description: "Please sign in to generate history.",
-        variant: "destructive",
-      });
-      return;
-    }
-    const base = getLatestTransaction();
-    if (!base) {
-      toast({
-        title: "Add a transaction first",
-        description: "Create at least one transaction to base the history on.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setIsSeeding(true);
-    const now = new Date();
-    const generated = Array.from({ length: 30 }, (_, idx) => {
-      const daysAgo = idx + 1;
-      const date = new Date(now);
-      date.setDate(now.getDate() - daysAgo);
-      const dateStr = date.toISOString().split("T")[0];
-      const timeStr = "12:00";
-      const variance = 0.7 + Math.random() * 0.6;
-      return {
-        user_id: userId,
-        description: `${base.description} (auto)`,
-        amount: Math.max(0, Math.round(base.amount * variance)),
-        type: base.type,
-        category: base.category,
-        date: dateStr,
-        time: timeStr,
-        receipt_url: null,
-        receipt_name: null,
-        receipt_type: null,
-      };
-    });
-    const { data, error } = await supabase
-      .from("transactions")
-      .insert(generated)
-      .select("id,description,amount,type,category,date,time,receipt_url,receipt_name,receipt_type,created_at");
-    setIsSeeding(false);
-    if (error || !data) {
-      toast({
-        title: "History generation failed",
-        description: error?.message ?? "Please try again.",
-        variant: "destructive",
-      });
-      return;
-    }
-    const mapped = (data ?? []).map((row) => mapTransactionRow(row as TransactionRow));
-    setTransactions((prev) => [...mapped, ...prev]);
-    toast({
-      title: "History generated",
-      description: "Added 30 days of transactions based on your latest entry.",
     });
   };
 
@@ -833,22 +774,13 @@ export default function Transactions() {
               className="w-full pl-11 pr-4 py-3 bg-muted/30 rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
             />
           </div>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="border-border hover:border-primary/50"
             onClick={() => setShowFilters(!showFilters)}
           >
             <Filter className="w-4 h-4 mr-2" />
             Filters
-          </Button>
-          <Button
-            variant="outline"
-            className="border-border hover:border-primary/50"
-            onClick={handleGenerateHistory}
-            disabled={isSeeding}
-          >
-            <Calendar className="w-4 h-4 mr-2" />
-            {isSeeding ? "Generating..." : "Generate History"}
           </Button>
         </motion.div>
 
@@ -1159,9 +1091,13 @@ export default function Transactions() {
                 </select>
               </div>
               <div className="flex justify-between">
-                <Button variant="outline" onClick={handleRecategorize}>
-                  <Sparkles className="w-4 h-4 mr-1" />
-                  AI Recategorize
+                <Button
+                  variant="outline"
+                  onClick={handleRecategorize}
+                  disabled={recategorizing}
+                >
+                  <Sparkles className={cn("w-4 h-4 mr-1", recategorizing && "animate-pulse")} />
+                  {recategorizing ? "Categorizing…" : "AI Recategorize"}
                 </Button>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={() => setEditingId(null)}>
