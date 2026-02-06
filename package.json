@@ -1,0 +1,13 @@
+{
+  "name": "uniguard-wallet-root",
+  "private": true,
+  "description": "Run dev/build from project root; app lives in frontend/",
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "preview": "cd frontend && npm run preview",
+    "lint": "cd frontend && npm run lint",
+    "notify:server": "node backend/server/notify.js",
+    "postinstall": "cd frontend && npm install"
+  }
+}
