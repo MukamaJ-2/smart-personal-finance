@@ -5,9 +5,13 @@
   "scripts": {
     "dev": "cd frontend && npm run dev",
     "build": "cd frontend && npm run build",
+    "start": "serve frontend/dist -s -l ${PORT:-3000}",
     "preview": "cd frontend && npm run preview",
     "lint": "cd frontend && npm run lint",
     "notify:server": "node backend/server/notify.js",
     "postinstall": "cd frontend && npm install"
+  },
+  "dependencies": {
+    "serve": "^14.2.4"
   }
 }
