@@ -273,6 +273,10 @@ export default function OnboardingSurvey() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId) return;
+    // Only allow submit when on the last step (prevents Enter key or accidental submit from redirecting early)
+    if (currentStep !== TOTAL_STEPS) {
+      return;
+    }
     if (!validateStep(1) || !validateStep(2)) {
       toast({
         title: "Complete required fields",
@@ -365,12 +369,12 @@ export default function OnboardingSurvey() {
   }
 
   return (
-    <div className="min-h-screen bg-background relative overflow-hidden">
+    <div className="min-h-screen bg-background relative overflow-x-hidden overflow-y-auto">
       <div className="absolute inset-0 grid-pattern opacity-20 pointer-events-none" />
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-secondary/10 rounded-full blur-3xl" />
 
-      <div className="relative z-10 max-w-2xl mx-auto px-4 py-8 sm:py-12">
+      <div className="relative z-10 max-w-2xl mx-auto px-4 py-8 sm:py-12 pb-16">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -429,6 +433,9 @@ export default function OnboardingSurvey() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.1 }}
           onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && currentStep !== TOTAL_STEPS) e.preventDefault();
+          }}
           className="space-y-6"
         >
           {/* Step 1: About You */}
