@@ -94,6 +94,14 @@ This project is built with:
 
 Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
 
+**Deploying to Railway (or other hosts):**  
+Add these **build-time** environment variables so the app can connect to Supabase:
+
+- `VITE_SUPABASE_URL` — your Supabase project URL (e.g. `https://xxxxx.supabase.co`)
+- `VITE_SUPABASE_ANON_KEY` — your Supabase anon/public key
+
+In Railway: Project → Variables → Add Variable. Then redeploy. Without these, the app still loads but login and Supabase features will be disabled.
+
 ## Can I connect a custom domain to my Lovable project?
 
 Yes, you can!
