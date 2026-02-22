@@ -1,33 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import {
-  LayoutDashboard,
-  Wallet,
-  Target,
-  MessageSquare,
-  BarChart3,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-  Zap,
-  Trophy,
-  LogOut,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Zap, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-
-const navItems = [
-  { icon: LayoutDashboard, label: "Wallet Hub", path: "/dashboard" },
-  { icon: Wallet, label: "Transactions", path: "/transactions" },
-  { icon: Zap, label: "Flux Pods", path: "/flux-pods" },
-  { icon: Target, label: "Goals", path: "/goals" },
-  { icon: MessageSquare, label: "AI Companion", path: "/companion" },
-  { icon: BarChart3, label: "Reports", path: "/reports" },
-  { icon: Trophy, label: "Achievements", path: "/achievements" },
-  { icon: Settings, label: "Settings", path: "/settings" },
-];
+import { navItems } from "./navConfig";
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -115,7 +93,7 @@ export default function Sidebar() {
       initial={{ width: 280 }}
       animate={{ width: collapsed ? 80 : 280 }}
       transition={{ duration: 0.3, ease: "easeInOut" }}
-      className="h-screen flex flex-col bg-sidebar border-r border-sidebar-border relative"
+      className="hidden h-screen flex-col bg-sidebar border-r border-sidebar-border relative md:flex"
     >
       {/* Logo */}
       <div className="h-16 flex items-center px-4 border-b border-sidebar-border">

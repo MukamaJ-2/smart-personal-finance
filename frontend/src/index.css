@@ -211,6 +211,17 @@
     background-attachment: fixed;
   }
 
+  /* Safe area for notched devices (e.g. iPhone) */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .pb-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+  }
+
   /* Scrollbar styling */
   ::-webkit-scrollbar {
     width: 6px;
